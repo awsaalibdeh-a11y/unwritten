@@ -577,7 +577,9 @@ function renderHero() {
   const s = life.slot || 0;
   const clock = $("clock");
   clock.textContent = `${SLOTS[s].icon} ${SLOTS[s].name}`;
-  document.body.dataset.slot = SLOTS[s].id;
+  setPart(s);
+  renderDaybar();
+  renderCircle();
   const key = $("age-btn");
   key.querySelector(".age-plus").textContent = s < N ? SLOTS[s].nextIcon : "+1";
   key.querySelector(".age-word").textContent = s < N ? SLOTS[s].next : "Age";
@@ -648,6 +650,52 @@ function renderDockBadges() {
   }
 }
 
+const PART_COLOR = { morning: "#fff8ee", afternoon: "#f4fbff", evening: "#fff3ec", night: "#edf0ff" };
+
+function setPart(i) {
+  const id = SLOTS[i].id;
+  document.documentElement.dataset.part = id;
+  const meta = $("theme-color");
+  if (meta) meta.setAttribute("content", document.documentElement.dataset.theme === "dark" ? "#171531" : PART_COLOR[id]);
+}
+
+function renderDaybar() {
+  const bar = $("daybar");
+  bar.innerHTML = "";
+  SLOTS.forEach((sl, i) => {
+    const state = i < (life.slot || 0) ? "past" : i === (life.slot || 0) ? "now" : "";
+    bar.append(el("button", {
+      class: `daypart ${state}`, type: "button", disabled: i !== (life.slot || 0),
+      onclick: () => toast(`It's ${sl.name.toLowerCase()}. Tap the big key to move the day on.`),
+    }, sl.name));
+  });
+}
+
+/* The people rail. Relationships were three taps away in a sheet nobody opened; now the people
+   you actually have sit on the home screen with a ring showing how you're doing with them. */
+function renderCircle() {
+  const rail = $("circle");
+  rail.innerHTML = "";
+  const alive = life.people.filter((p) => p.alive);
+  const rank = (p) => (LOVE_ROLES.includes(p.role) ? 0 : p.role === "Friend" ? 1 : p.pet ? 3 : 2);
+  const shown = alive.sort((a, b) => rank(a) - rank(b) || b.bond - a.bond).slice(0, 6);
+  for (const p of shown) {
+    const name = p.pet ? p.name : firstName(p.name);
+    const tag = LOVE_ROLES.includes(p.role) ? "♥" : p.bond < 35 ? "⚠" : p.bond >= 90 ? "★" : null;
+    rail.append(el("button", {
+      class: "orb", type: "button", onclick: () => openSheet("person", p.id),
+      style: `--c: ${ROLE_COLOR[p.role] || "var(--heart)"}; --bond: ${Math.round(p.bond)}`,
+    },
+      el("span", { class: "orb-ring", "data-initial": p.pet ? PET_ICON[p.role] : name[0] },
+        tag ? el("span", { class: "orb-tag" }, tag) : null),
+      el("span", { class: "orb-name" }, name)));
+  }
+  rail.append(el("button", {
+    class: "orb add", type: "button", onclick: () => openSheet("people"),
+    style: "--c: var(--heart)",
+  }, el("span", { class: "orb-ring" }), el("span", { class: "orb-name" }, shown.length ? "More" : "Meet")));
+}
+
 function renderDangerBanner() {
   const banner = $("danger-banner");
   const h = life.stats.health;
@@ -668,7 +716,7 @@ function renderAll() {
 
 /* A milestone deserves more than one grey line in a list nobody is looking at. */
 function milestoneCard(text) {
-  if (reducedMotion()) return;
+  if (reducedMotion() || sheetView || !$("event-modal").hidden) return;
   document.querySelector(".milestone")?.remove();
   const card = el("div", { class: "milestone", onclick: () => card.remove() },
     el("div", { class: "m-icon" }, "✦"),
@@ -1318,6 +1366,7 @@ function renderChips(applied) {
 let sheetView = null;
 
 function openSheet(view, arg) {
+  document.querySelector(".milestone")?.remove();
   sheetView = { view, arg };
   $("sheet").hidden = false;
   $("sheet-backdrop").hidden = false;
@@ -1358,6 +1407,7 @@ const left = (id, limit = 1) => Math.max(0, limit - uses(id));
 const done = (id, limit = 1) => left(id, limit) === 0;
 const openNow = (when) => (when || ANY).includes(life.slot || 0);
 const whenWords = (when) => (when || ANY).map((i) => SLOTS[i].name.toLowerCase()).join(" or ");
+const whenIcons = (when) => (when || ANY).map((i) => SLOTS[i].icon).join("");
 // life.last remembers the age an action was last used, and survives the year rollover, so some
 // things can carry a cooldown measured in years rather than resetting every birthday.
 const yearsSince = (id) => (life.last && life.last[id] !== undefined ? life.age - life.last[id] : 999);
@@ -2224,7 +2274,7 @@ function effectLine(act) {
   if (act.cooldown) parts.push(`every ${act.cooldown} years`);
   else if ((act.per || 1) > 1) parts.push(`${act.per}× a year`);
   if (act.once) parts.push("once in a lifetime");
-  if (act.when && act.when.length < 4) parts.push(whenWords(act.when));
+
   return parts.join(" · ") || "See what happens";
 }
 
@@ -2338,7 +2388,7 @@ function sheetActivities(body) {
       body.append(row({
         icon: act.icon, color: wrongTime ? "var(--faint)" : STAT_META[Object.keys(act.fx || {})[0]]?.color || "var(--lamp)",
         title: act.label, sub: effectLine(act), doneId: act.id, doneLimit: act.per || 1,
-        disabled: wrongTime, side: wrongTime ? whenWords(act.when) : null,
+        disabled: wrongTime, side: wrongTime ? whenIcons(act.when) : null,
         reason: wrongTime ? `${act.label} is a ${whenWords(act.when)} thing. Move the day on.` : null,
         onclick: () => doActivity(act),
       }));
@@ -2610,6 +2660,18 @@ for (const b of document.querySelectorAll(".dock-btn")) b.addEventListener("clic
 $("sheet-close").addEventListener("click", closeSheet);
 $("sheet-back").addEventListener("click", () => openSheet("people"));
 $("hero").addEventListener("click", () => { if (life?.alive) openSheet("you"); });
+
+// Light is the default and the only default — dark exists because some people ask for it.
+function applyTheme(mode) {
+  document.documentElement.dataset.theme = mode;
+  $("theme-toggle").textContent = mode === "dark" ? "🌙" : "☀";
+  try { localStorage.setItem("unwritten_theme", mode); } catch { /* ignore */ }
+  if (life) setPart(life.slot || 0);
+}
+$("theme-toggle").addEventListener("click", () => {
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+});
+try { applyTheme(localStorage.getItem("unwritten_theme") === "dark" ? "dark" : "light"); } catch { applyTheme("light"); }
 $("sheet-backdrop").addEventListener("click", closeSheet);
 
 document.addEventListener("keydown", (e) => {
