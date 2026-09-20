@@ -144,7 +144,8 @@ const ACTIVITIES = [
     } },
 
   // --- adult ---
-  { id: "vacation", icon: "🏖️", label: "Take a vacation", cat: "Fun", min: 18, cost: 1800, fx: { happiness: [6, 11], health: [1, 3] }, log: "You took a proper holiday and came back a different person.", highlight: true },
+  { id: "vacation", icon: "🏖️", label: "Take a vacation", cat: "Fun", min: 18, cost: 1800, fx: { happiness: [6, 11], health: [1, 3] },
+    after: () => { life.holidays = (life.holidays || 0) + 1; }, log: "You took a proper holiday and came back a different person.", highlight: true },
   { id: "marathon", icon: "🏃", label: "Run a marathon", cat: "Body", min: 18, max: 60, fx: { health: [5, 9], happiness: [5, 9] }, log: "You ran a marathon. Slowly, but entirely.", highlight: true, badge: "marathon",
     need: () => (life.stats.health < 45 ? "You'd need to be a lot fitter first." : null) },
   { id: "therapy", icon: "🛋️", label: "See a therapist", cat: "Care", min: 16, cost: 600, fx: { happiness: [6, 12], smarts: [0, 2] }, log: "You talked it through with someone who actually listens." },
@@ -160,7 +161,8 @@ const ACTIVITIES = [
   { id: "garden", icon: "🌱", label: "Tend the garden", cat: "Care", min: 45, fx: { happiness: [3, 7], health: [1, 4] }, log: "You spent the season arguing with the roses." },
   { id: "reunion", icon: "🎉", label: "Go to a reunion", cat: "Fun", min: 40, fx: { happiness: [4, 9] }, log: "Everyone looked older except, obviously, you." },
   { id: "mentor", icon: "🧑‍🏫", label: "Mentor someone young", cat: "Care", min: 50, fx: { happiness: [4, 8], smarts: [1, 3] }, log: "You passed on everything you know to someone just starting out." },
-  { id: "cruise", icon: "🚢", label: "Go on a cruise", cat: "Fun", min: 60, cost: 4000, cooldown: 2, fx: { happiness: [7, 12], health: [0, 3] }, log: "You spent two weeks at sea eating spectacularly.", highlight: true },
+  { id: "cruise", icon: "🚢", label: "Go on a cruise", cat: "Fun", min: 60, cost: 4000, cooldown: 2, fx: { happiness: [7, 12], health: [0, 3] },
+    after: () => { life.holidays = (life.holidays || 0) + 1; }, log: "You spent two weeks at sea eating spectacularly.", highlight: true },
   { id: "memoir", icon: "✍️", label: "Write your memoir", cat: "Mind", min: 62, once: true, fx: { smarts: [2, 5], happiness: [5, 9] }, log: "You wrote it all down. Some of it is even true.", highlight: true, badge: "memoir" },
   { id: "babysit", icon: "👵", label: "Babysit the grandkids", cat: "Care", min: 45, fx: { happiness: [6, 11], health: [-2, 0] },
     need: () => (life.people.some((p) => p.alive && GRANDKID_ROLES.includes(p.role)) ? null : "No grandchildren to spoil yet."),
@@ -207,6 +209,7 @@ const BADGES = {
   giver: ["🎗️", "Generous", "Gave to a cause you believe in"],
   memoir: ["✍️", "Memoirist", "Wrote the story of your life"],
   straightA: ["💯", "Straight A's", "Finished a school year at 95%"],
+  topofyear: ["🥇", "Top of the Year", "Came top in your exams"],
   graduate: ["🎓", "Graduate", "Finished high school"],
   scholar: ["📜", "Scholar", "Earned a university degree"],
   firstjob: ["💼", "On the Payroll", "Got your first job"],
@@ -222,6 +225,25 @@ const BADGES = {
   bestfriend: ["🫂", "Inseparable", "Loved somebody to 95"],
   centenarian: ["🎂", "A Hundred", "Reached one hundred years old"],
 };
+
+/* Four goals, drawn at birth. Without them a life sim is a treadmill: this is the thing that
+   makes one life different from the last, and gives a player a reason to choose. */
+const GOALS = [
+  { id: "degree", icon: "🎓", name: "Earn a degree", hint: "Finish university", test: (l) => l.education === "university" },
+  { id: "rich", icon: "💰", name: "Bank a million", hint: "Have $1,000,000 at once", test: (l) => l.money >= 1000000 },
+  { id: "home", icon: "🏠", name: "Own your own home", hint: "Buy any home", test: (l) => l.assets.some((a) => a.kind === "home") },
+  { id: "top", icon: "🏆", name: "Reach the top of a career", hint: "Get promoted three times", test: (l) => (l.job?.level || 0) >= 3 },
+  { id: "married", icon: "💍", name: "Marry someone you love", hint: "Marry with a bond above 80", test: (l) => l.people.some((p) => p.role === "Spouse" && p.bond >= 80) },
+  { id: "family", icon: "👨‍👩‍👧", name: "Raise two children", hint: "Have two kids", test: (l) => l.people.filter((p) => KID_ROLES.includes(p.role)).length >= 2 },
+  { id: "bestie", icon: "🫂", name: "Find a friend for life", hint: "A friend at 95 bond", test: (l) => l.people.some((p) => p.alive && p.role === "Friend" && p.bond >= 95) },
+  { id: "fit", icon: "💪", name: "Be in the shape of your life", hint: "Health above 90 after 40", test: (l) => l.age >= 40 && l.stats.health >= 90 },
+  { id: "clever", icon: "🧠", name: "Become genuinely clever", hint: "Smarts above 90", test: (l) => l.stats.smarts >= 90 },
+  { id: "old", icon: "🎂", name: "See ninety", hint: "Live to 90", test: (l) => l.age >= 90 },
+  { id: "travel", icon: "🏖️", name: "See the world", hint: "Three holidays in one life", test: (l) => (l.holidays || 0) >= 3 },
+  { id: "wheels", icon: "🚗", name: "Drive something you love", hint: "Buy a car worth over $40,000", test: (l) => l.assets.some((a) => a.kind === "car" && (a.paid || 0) >= 40000) },
+  { id: "kind", icon: "🎗️", name: "Be somebody's good news", hint: "Volunteer and give to charity", test: (l) => (l.badges || []).includes("helper") && (l.badges || []).includes("giver") },
+  { id: "pets", icon: "🐾", name: "Give an animal a home", hint: "Adopt a pet", test: (l) => l.people.some((p) => p.pet) },
+];
 
 const KID_ROLES = ["Son", "Daughter"];
 const GRANDKID_ROLES = ["Grandson", "Granddaughter"];
@@ -371,6 +393,8 @@ function createLife({ name, gender, country }) {
     inheritance: takeEstate(),
     peak: 0,
     jobsHeld: 0,
+    holidays: 0,
+    goals: [...GOALS].sort(() => Math.random() - 0.5).slice(0, 4).map((g) => ({ id: g.id, done: 0 })),
     jobBoard: null,
   };
   const mom = people[0], dad = people[1];
@@ -538,6 +562,7 @@ function sheetTodo(view) {
     return n;
   }
   if (view === "assets") return done("trade") ? 0 : 1;
+  if (view === "you") return (life.goals || []).filter((g) => !g.done).length;
   return 0;
 }
 
@@ -624,6 +649,7 @@ function ageUp() {
   closeSheet();
   yearSweep();
   life.age += 1;
+  life.prepped = uses("study"); // revision done during the year just gone, read by the exams
   life.doneThisYear = {};
   life.gained = {};
   life.applied = 0;
@@ -679,10 +705,26 @@ function schoolLabel(school) {
   return { elementary: "Elementary school", middle: "Middle school", high: "High school" }[school.stage];
 }
 
+// End-of-year exams: the one moment school actually judges you, and the gate to university.
+function sitExams(sc) {
+  // One number, and you can see where it came from: how clever you are, how much work you put
+  // in across the years, and how much you revised this one.
+  const score = clamp(life.stats.smarts * 0.55 + (sc.effort || 50) * 0.3 + (life.prepped || 0) * 6 + rand(-7, 7), 0, 100);
+  sc.exam = Math.round(score);
+  sc.grades = sc.exam;
+  const verdict = score >= 90 ? "Top of the year." : score >= 75 ? "A good year." : score >= 55 ? "You scraped through." : "That did not go well.";
+  addLog(`End-of-year exams: ${Math.round(score)}%. ${verdict}`, score >= 75 ? "milestone" : score < 45 ? "bad" : "action", { highlight: score >= 90 || score < 40 });
+  if (score >= 90) awardBadge("topofyear");
+}
+
 function yearSchool() {
   const a = life.age;
   const sc = life.school;
-  if (sc) sc.grades = clamp(sc.grades + (life.stats.smarts - sc.grades) / 5 + rand(-6, 6), 0, 100);
+  if (sc) {
+    if (sc.effort === undefined) sc.effort = 50;
+    sc.effort = clamp(sc.effort - rand(0, 4), 0, 100); // effort slides unless you put the work in
+    if (a >= 7) sitExams(sc);
+  }
 
   if (a === 5) {
     life.school = { stage: "elementary", grades: clamp(life.stats.smarts + rand(-15, 15), 20, 95) };
@@ -1187,7 +1229,7 @@ function renderSheet() {
   const keepScroll = body.scrollTop;
   body.innerHTML = "";
   $("sheet-back").hidden = sheetView.view !== "person";
-  ({ career: sheetCareer, people: sheetPeople, person: sheetPerson, assets: sheetAssets, activities: sheetActivities })[sheetView.view](body, sheetView.arg);
+  ({ career: sheetCareer, people: sheetPeople, person: sheetPerson, assets: sheetAssets, activities: sheetActivities, you: sheetYou })[sheetView.view](body, sheetView.arg);
   const n = sheetTodo(sheetView.view === "person" ? "people" : sheetView.view);
   $("sheet-ledger").textContent = `Age ${life.age} · ${n} left to do here this year`;
   body.scrollTop = keepScroll;
@@ -1260,8 +1302,22 @@ function awardBadge(id) {
   addLog(`${icon} ${name}: ${line.toLowerCase()}.`, "milestone", { highlight: true });
 }
 
+function checkGoals() {
+  if (!life.goals) return;
+  for (const g of life.goals) {
+    if (g.done) continue;
+    const goal = GOALS.find((x) => x.id === g.id);
+    if (!goal || !goal.test(life)) continue;
+    g.done = life.age;
+    toast(`${goal.icon}  Goal complete — ${goal.name}`);
+    addLog(`${goal.icon} Goal complete: ${goal.name.toLowerCase()}.`, "milestone", { highlight: true });
+    bump("happiness", 6, 10);
+  }
+}
+
 // Badges you earn by living rather than by tapping: checked after every year and every action.
 function checkBadges() {
+  checkGoals();
   const alive = life.people.filter((p) => p.alive);
   if (life.education === "high school" || life.education === "university") awardBadge("graduate");
   if (life.education === "university") awardBadge("scholar");
@@ -1372,6 +1428,50 @@ function dangerRow(body, { icon, title, sub, question, onConfirm }) {
   }));
 }
 
+/* ----- you: goals, badges, and what the numbers actually mean ----- */
+
+const STAT_RULE = {
+  happiness: "How good life feels. It drifts back to normal, and the people you're close to pull it up.",
+  health: "What keeps you alive. Let it fall and you die decades early; look after it and you'll see ninety.",
+  smarts: "Gets you into university and into the jobs worth having.",
+  looks: "Helps at interviews and when you're looking for someone. It fades after 25 unless you work at it.",
+};
+
+function sheetYou(body) {
+  $("sheet-title").textContent = life.name;
+  const openGoals = (life.goals || []).filter((g) => !g.done);
+  const doneGoals = (life.goals || []).filter((g) => g.done);
+
+  sectionLabel(body, `Life goals · ${doneGoals.length} of ${(life.goals || []).length}`);
+  if (!life.goals?.length) body.append(el("p", { class: "note" }, "This life has no set goals — make your own."));
+  for (const g of [...openGoals, ...doneGoals]) {
+    const goal = GOALS.find((x) => x.id === g.id);
+    if (!goal) continue;
+    body.append(row({
+      icon: goal.icon, color: g.done ? "var(--money)" : "var(--brass)",
+      title: goal.name, sub: g.done ? `Done at ${g.done}` : goal.hint,
+      side: g.done ? "✓" : null, sideClass: g.done ? "good" : "",
+    }));
+  }
+
+  sectionLabel(body, "What the numbers mean");
+  for (const s of STATS) {
+    body.append(row({
+      icon: `${Math.round(life.stats[s])}`, color: STAT_META[s].color,
+      title: STAT_META[s].label, sub: STAT_RULE[s],
+      bar: life.stats[s], barColor: STAT_META[s].color,
+    }));
+  }
+
+  const badges = life.badges || [];
+  sectionLabel(body, `Badges · ${badges.length} of ${Object.keys(BADGES).length}`);
+  if (!badges.length) body.append(el("p", { class: "note" }, "None yet. They come from doing things for the first time."));
+  for (const id of badges) {
+    const b = BADGES[id];
+    if (b) body.append(row({ icon: b[0], color: "var(--brass)", title: b[1], sub: b[2] }));
+  }
+}
+
 /* ----- school & career ----- */
 
 // Clubs are what people actually remember about school. Join up to two; each pays out yearly.
@@ -1471,23 +1571,27 @@ function sheetCareer(body) {
 
   if (life.school) {
     sectionLabel(body, "School");
-    body.append(row({ icon: life.school.stage === "university" ? "🎓" : "🏫", color: "var(--smarts)", title: schoolLabel(life.school), sub: `Grades ${Math.round(life.school.grades)}%`, bar: life.school.grades, barColor: "var(--smarts)" }));
     body.append(row({
-      icon: "✏️", color: "var(--smarts)", title: "Study harder", sub: "Better grades, more smarts",
-      doneId: "study",
-      onclick: () => { if (!useAction("study")) return; life.school.grades = clamp(life.school.grades + rand(8, 14), 0, 100); const d = gain("smarts", 1, 3); addLog(`You buckled down and studied hard.${d ? ` (+${d} smarts)` : ""}`, "action"); renderSheet(); save(); },
+      icon: life.school.stage === "university" ? "🎓" : "🏫", color: "var(--smarts)", title: schoolLabel(life.school),
+      sub: life.school.exam ? `Last exams: ${life.school.exam}%` : "Your first exams are at 7",
+      bar: life.school.effort === undefined ? 50 : life.school.effort, barColor: "var(--smarts)",
     }));
     body.append(row({
-      icon: "😎", color: "var(--happy)", title: "Slack off", sub: "Fun now, grades later",
-      doneId: "slack",
-      onclick: () => { if (!useAction("slack")) return; life.school.grades = clamp(life.school.grades - rand(6, 12), 0, 100); gain("happiness", 3, 6); addLog("You slacked off and had a great time. Your grades didn't.", "action"); renderSheet(); save(); },
+      icon: "✏️", color: "var(--smarts)", title: "Study harder", sub: "Better grades, more smarts · counts towards your exams · 2× a year",
+      doneId: "study", doneLimit: 2,
+      onclick: () => { if (!useAction("study", 0, 2)) return; life.school.effort = clamp((life.school.effort || 50) + rand(9, 16), 0, 100); const d = gain("smarts", 1, 3); addLog(`You buckled down and studied hard.${d ? ` (+${d} smarts)` : ""}`, "action"); toast(d ? `+${d} smarts   ready for the exams` : "Ready for the exams"); renderSheet(); save(); },
+    }));
+    body.append(row({
+      icon: "😎", color: "var(--happy)", title: "Slack off", sub: "Fun now, exams later · 2× a year",
+      doneId: "slack", doneLimit: 2,
+      onclick: () => { if (!useAction("slack", 0, 2)) return; life.school.effort = clamp((life.school.effort || 50) - rand(8, 15), 0, 100); const h = gain("happiness", 3, 6); addLog("You slacked off and had a great time. Your grades didn't.", "action"); toast(h ? `+${h} happiness   exams are going to hurt` : "Exams are going to hurt"); renderSheet(); save(); },
     }));
     schoolClubs(body);
   }
 
   if (a >= 18 && !life.school && life.education === "high school") {
     sectionLabel(body, "Education");
-    const grades = life.lastGrades || 0;
+    const grades = life.lastGrades || 0; // your final school exams
     if (life.job && !life.job.partTime) {
       body.append(row({ icon: "🎓", color: "var(--faint)", title: "Go to university", sub: "Quit your job to study full time", disabled: true }));
     } else if (grades < 60) {
@@ -2333,6 +2437,7 @@ $("age-btn").addEventListener("click", ageUp);
 for (const b of document.querySelectorAll(".dock-btn")) b.addEventListener("click", () => openSheet(b.dataset.sheet));
 $("sheet-close").addEventListener("click", closeSheet);
 $("sheet-back").addEventListener("click", () => openSheet("people"));
+$("hero").addEventListener("click", () => { if (life?.alive) openSheet("you"); });
 $("sheet-backdrop").addEventListener("click", closeSheet);
 
 document.addEventListener("keydown", (e) => {
