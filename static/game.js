@@ -527,7 +527,7 @@ function renderStats() {
 // How many things are still worth doing in each sheet this year — the honest replacement for
 // an energy meter: a count of what's left, not a budget you spend.
 function sheetTodo(view) {
-  if (view === "activities") return ACTIVITIES.filter((a) => activityOpen(a) && !done(a.id) && !(a.need && a.need()) && !(a.cooldown && cooling(a.id, a.cooldown))).length;
+  if (view === "activities") return ACTIVITIES.filter((a) => activityOpen(a) && !done(a.id, perYear(a.id)) && !(a.need && a.need()) && !(a.cooldown && cooling(a.id, a.cooldown))).length;
   if (view === "people") return life.people.filter((p) => p.alive && !done(`person:${p.id}`)).length;
   if (view === "career") {
     let n = 0;
@@ -1198,7 +1198,12 @@ function renderSheet() {
 /* No energy meter: every action is simply once a year, and the row says so once you've used it.
    A year is the resource — if you want the gym AND the doctor, you have to live longer. */
 
-const done = (id) => !!(life.doneThisYear && life.doneThisYear[id]);
+/* How many times you've used something this year, and how many you have left. A flat "once a
+   year, everything" was too blunt — a trip to the gym is not a wedding. Each action carries its
+   own allowance instead. */
+const uses = (id) => (life.doneThisYear && life.doneThisYear[id]) || 0;
+const left = (id, limit = 1) => Math.max(0, limit - uses(id));
+const done = (id, limit = 1) => left(id, limit) === 0;
 // life.last remembers the age an action was last used, and survives the year rollover, so some
 // things can carry a cooldown measured in years rather than resetting every birthday.
 const yearsSince = (id) => (life.last && life.last[id] !== undefined ? life.age - life.last[id] : 999);
@@ -1207,15 +1212,17 @@ function cooling(id, years) {
   return since < years ? years - since : 0;
 }
 
-function useAction(id, cost = 0) {
-  if (done(id)) {
-    toast("You already did that this year. Tap Age to move on.");
+function useAction(id, cost = 0, limit = 1) {
+  if (done(id, limit)) {
+    toast(limit > 1
+      ? `That's your ${limit} for this year. Tap Age to move on.`
+      : "You already did that this year. Tap Age to move on.");
     return false;
   }
   if (!payFor(cost)) return false;
   if (!life.doneThisYear) life.doneThisYear = {};
   if (!life.last) life.last = {};
-  life.doneThisYear[id] = true;
+  life.doneThisYear[id] = uses(id) + 1;
   life.last[id] = life.age;
   return true;
 }
@@ -1310,10 +1317,12 @@ function gain(stat, lo, hi) {
 /* Rows never use the HTML disabled attribute: a disabled button swallows the tap, and then the
    player has no idea why nothing happened. A spent or locked row stays tappable, wears a stamp,
    and when you tap it, it shakes its head and tells you exactly why. */
-function row({ icon, color, title, sub, side, sideClass, onclick, disabled, reason, bar, barColor, doneId }) {
-  const isDone = doneId ? done(doneId) : false;
+function row({ icon, color, title, sub, side, sideClass, onclick, disabled, reason, bar, barColor, doneId, doneLimit = 1 }) {
+  const isDone = doneId ? done(doneId, doneLimit) : false;
+  // part-used rows say so without being spent: "1 of 3 this year"
+  if (doneId && !isDone && doneLimit > 1 && uses(doneId) > 0 && !side) side = `${uses(doneId)} of ${doneLimit}`;
   const inert = isDone || !!disabled;
-  const stamp = isDone ? "done this year" : disabled && side ? side : null;
+  const stamp = isDone ? (doneLimit > 1 ? `all ${doneLimit} done` : "done this year") : disabled && side ? side : null;
   const tag = onclick || inert ? "button" : "div";
   const emoji = /\p{Extended_Pictographic}/u.test(icon);
   const node = el(tag, {
@@ -1326,7 +1335,11 @@ function row({ icon, color, title, sub, side, sideClass, onclick, disabled, reas
         node.classList.remove("nudging");
         void node.offsetWidth;
         node.classList.add("nudging");
-        toast(reason || (isDone ? "You already did that this year. Tap Age to move on." : `Not yet — ${String(side || "locked").toLowerCase()}.`));
+        toast(reason || (isDone
+        ? doneLimit > 1
+          ? `That's your ${doneLimit} for this year. Tap Age to move on.`
+          : "You already did that this year. Tap Age to move on."
+        : `Not yet — ${String(side || "locked").toLowerCase()}.`));
       }
       : onclick,
   },
@@ -1642,30 +1655,65 @@ function personRow(p) {
 
 // The people you already have come first: the old order put "make a friend" at the top, which
 // made it look as though everyone was locked until you unlocked them.
+function meetSection(body) {
+  const a = life.age;
+  const hasPartner = life.people.some((p) => p.alive && LOVE_ROLES.includes(p.role));
+  sectionLabel(body, "Meet someone new");
+  body.append(row({
+    icon: "👋", color: "var(--happy)", title: "Make a new friend",
+    sub: a >= 4 ? "Someone to share the whole thing with" : "Unlocks at 4",
+    disabled: a < 4, side: a < 4 ? "at 4" : null,
+    reason: "You're still a bit small to be making friends of your own.",
+    doneId: "friend", doneLimit: 2, onclick: makeFriend,
+  }));
+  body.append(row({
+    icon: "💘", color: "#ff7eb3", title: hasPartner ? "You're seeing someone" : "Find love",
+    sub: hasPartner ? "Tap them above to make it count" : a >= 14 ? "Better odds when you're happy and looking after yourself" : "Unlocks at 14",
+    disabled: a < 14 || hasPartner, side: a < 14 ? "at 14" : null,
+    reason: hasPartner ? "You're already seeing someone." : "You're too young for that yet.",
+    doneId: "love", onclick: findLove,
+  }));
+  body.append(row({
+    icon: "🐾", color: "var(--lamp)", title: "Adopt a pet",
+    sub: a >= 6 ? (a >= 18 ? "$200 adoption fee" : "If your parents say yes…") : "Unlocks at 6",
+    disabled: a < 6, side: a < 6 ? "at 6" : null,
+    reason: "Your parents aren't ready to trust you with an animal yet.",
+    doneId: "pet", onclick: adoptPet,
+  }));
+}
+
 function sheetPeople(body) {
   $("sheet-title").textContent = "People";
-  const a = life.age;
   const alive = life.people.filter((p) => p.alive);
+  const friends = alive.filter((p) => p.role === "Friend");
+  const loves = alive.filter((p) => LOVE_ROLES.includes(p.role));
+  // When you have nobody of your own, meeting people is the first thing you see — burying it
+  // under the family list is exactly why this looked like it wasn't in the game.
+  const lonely = !friends.length && !loves.length;
+
+  if (lonely) {
+    body.append(el("p", { class: "note" }, life.age < 4
+      ? "Right now your whole world is your family. Friends come soon."
+      : "You haven't got anyone of your own yet. Go and find someone."));
+    meetSection(body);
+  } else {
+    body.append(el("p", { class: "note" }, "Tap anyone to spend time with them. Every bond fades a little each year you leave it alone."));
+  }
+
   const groups = [
+    ["Love", loves],
+    ["Friends", friends],
     ["Your family", alive.filter((p) => FAMILY_ROLES.includes(p.role))],
-    ["Love", alive.filter((p) => LOVE_ROLES.includes(p.role))],
-    ["Friends", alive.filter((p) => p.role === "Friend")],
     ["Pets", alive.filter((p) => p.pet)],
     ["Water under the bridge", alive.filter((p) => p.role.startsWith("Ex-"))],
   ];
-  body.append(el("p", { class: "note" }, "Tap anyone to spend time with them. Every relationship fades a little each year if you leave it alone."));
   for (const [label, list] of groups) {
     if (!list.length) continue;
     sectionLabel(body, label);
-    for (const p of list) body.append(personRow(p));
+    for (const p of list.sort((x, y) => y.bond - x.bond)) body.append(personRow(p));
   }
 
-  const hasPartner = alive.some((p) => LOVE_ROLES.includes(p.role));
-  sectionLabel(body, "Meet someone new");
-  if (a >= 5) body.append(row({ icon: "👋", color: "var(--happy)", title: "Make a new friend", sub: "Someone to share the adventure", doneId: "friend", onclick: makeFriend }));
-  if (a >= 16 && !hasPartner) body.append(row({ icon: "💘", color: "#ff7eb3", title: "Find love", sub: "Better odds when you're happy and looking good", doneId: "love", onclick: findLove }));
-  if (a >= 8) body.append(row({ icon: "🐾", color: "var(--lamp)", title: "Adopt a pet", sub: a >= 18 ? "$200 adoption fee" : "If your parents say yes…", doneId: "pet", onclick: adoptPet }));
-  if (a < 5) body.append(el("p", { class: "note" }, "You're a bit small to be making friends of your own just yet."));
+  if (!lonely) meetSection(body);
 
   const gone = life.people.filter((p) => !p.alive);
   if (gone.length) {
@@ -1680,9 +1728,9 @@ function makeFriend() {
     toast("Your calendar's full — you can't keep up with any more people.");
     return;
   }
-  if (!useAction("friend")) return;
+  if (!useAction("friend", 0, 2)) return;
   const g = Math.random() < 0.5 ? "female" : "male";
-  const friend = newPerson("Friend", randomName(life.country, g), clamp(life.age + randInt(-2, 2), 3, 110), randInt(45, 70), { gender: g });
+  const friend = newPerson("Friend", randomName(life.country, g), clamp(life.age + randInt(-2, 2), 3, 110), randInt(45, 70), { gender: g, met: life.age });
   life.people.push(friend);
   addLog(`You became friends with ${friend.name}.`, "milestone");
   gain("happiness", 2, 5);
@@ -1695,7 +1743,7 @@ function findLove() {
   if (Math.random() < clamp(0.18 + (s.looks + s.happiness) / 260, 0.15, 0.85)) {
     const g = life.gender === "female" ? "male" : "female";
     // teens only ever date teens, adults only adults
-    const age = life.age < 18 ? randInt(Math.max(16, life.age - 1), 17) : clamp(life.age + randInt(-3, 3), 18, 110);
+    const age = life.age < 18 ? clamp(life.age + randInt(-1, 1), 13, 17) : clamp(life.age + randInt(-3, 3), 18, 110);
     const partner = newPerson("Partner", randomName(life.country, g), age, randInt(55, 75), { gender: g });
     life.people.push(partner);
     addLog(`You started dating ${partner.name}.`, "milestone", { highlight: true });
@@ -1884,7 +1932,7 @@ function sheetAssets(body) {
         onConfirm: () => {
           if (done("trade")) { toast("One big purchase or sale a year."); return; }
           if (!life.doneThisYear) life.doneThisYear = {};
-          life.doneThisYear.trade = true;
+          life.doneThisYear.trade = uses("trade") + 1;
           life.money += resale;
           life.assets = life.assets.filter((x) => x.id !== a.id);
           addLog(`You sold your ${a.name.toLowerCase()} for ${fmtMoney(resale)}.`, "action");
@@ -1900,7 +1948,7 @@ function sheetAssets(body) {
     if (done("trade")) { toast("One big purchase or sale a year. Tap Age to move on."); return; }
     if (!payFor(price)) return;
     if (!life.doneThisYear) life.doneThisYear = {};
-    life.doneThisYear.trade = true;
+    life.doneThisYear.trade = uses("trade") + 1;
     // a car is worth less the moment it leaves the forecourt: no more buy-and-sell happiness loop
     life.assets.push({ id: uid(), kind, name, icon, paid: price, value: Math.round(price * (kind === "car" ? 0.82 : 1)) });
     addLog(`You bought ${an(name.toLowerCase())} for ${fmtMoney(price)}!`, "milestone", { highlight: price >= 20000 });
@@ -1934,6 +1982,16 @@ function sheetAssets(body) {
 
 /* ----- activities ----- */
 
+/* How often a thing can be done in one year. Everyday habits come round again; the big ones
+   don't. Anything not listed is once a year, and gain() still fades toward its ceiling, so
+   repeating something cheap stops paying long before it breaks the balance. */
+const PER_YEAR = {
+  nap: 4, walk: 3, playground: 3, gym: 3, games: 3, post: 3, garden: 3, babysit: 3, meditate: 3, babble: 3,
+  library: 2, instrument: 2, draw: 2, cook: 2, sleepover: 2, newword: 2, cuddle: 2, scribble: 2,
+  haircut: 2, volunteer: 2, therapy: 2, spa: 2, roadtrip: 2, charity: 2, mentor: 2, lessons: 3, drivingtest: 2,
+};
+const perYear = (id) => PER_YEAR[id] || 1;
+
 const activityCost = (act) => (act.cost && life.age >= (act.costFrom || 0) ? act.cost : 0);
 const activityOpen = (act) => life.age >= act.min && (act.max === undefined || life.age <= act.max)
   && !(act.once && life.onceDone && life.onceDone[act.id]);
@@ -1943,6 +2001,7 @@ function effectLine(act) {
   const cost = activityCost(act);
   if (cost) parts.push(life.age < 18 ? `${fmtMoney(cost)} — ask a parent` : fmtMoney(cost));
   if (act.cooldown) parts.push(`every ${act.cooldown} years`);
+  else if (act.id && perYear(act.id) > 1) parts.push(`${perYear(act.id)}× a year`);
   if (act.once) parts.push("once in a lifetime");
   return parts.join(" · ") || "See what happens";
 }
@@ -1963,7 +2022,7 @@ function doActivity(act) {
   if (blocked) { toast(blocked); return; }
   const wait = act.cooldown ? cooling(act.id, act.cooldown) : 0;
   if (wait) { toast(`Not again for ${wait} year${wait === 1 ? "" : "s"}.`); return; }
-  if (!useAction(act.id, activityCost(act))) return;
+  if (!useAction(act.id, activityCost(act), perYear(act.id))) return;
   if (act.once) {
     if (!life.onceDone) life.onceDone = {};
     life.onceDone[act.id] = true;
@@ -2004,7 +2063,8 @@ function sheetActivities(body) {
     for (const act of list) {
       body.append(row({
         icon: act.icon, color: STAT_META[Object.keys(act.fx || {})[0]]?.color || "var(--lamp)",
-        title: act.label, sub: effectLine(act), doneId: act.id, onclick: () => doActivity(act),
+        title: act.label, sub: effectLine(act), doneId: act.id, doneLimit: perYear(act.id),
+        onclick: () => doActivity(act),
       }));
     }
   }
