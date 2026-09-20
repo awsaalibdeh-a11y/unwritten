@@ -70,6 +70,7 @@ EVENT_SYSTEM = CONTENT_RULES + """
 You write one event from a year of the player's life, as a choice for the player to make. It \
 must fit their exact age and situation, feel specific to THIS character (use their job, school, \
 people and recent history), and be different from their recent events. Surprise them sometimes.
+Set it at the time of day given in the sheet — a 2am scene should read nothing like an 8am one.
 Write in second person ("you"), present tense, warm and a little witty. For a baby, write what \
 happens to them, with choices a toddler could plausibly make ("Cry", "Giggle", "Grab it").
 
@@ -169,6 +170,7 @@ def character_sheet(life):
         f"Name: {clean_name(life.get('name'))}",
         f"Gender: {clean_text(life.get('gender'), 12) or 'unspecified'}",
         f"Age: {age} ({life_stage(age)})",
+        f"Time of day: {clean_text(life.get('timeOfDay'), 20) or 'afternoon'} ({clean_text(life.get('hour'), 20)})",
         f"Country: {clean_text(life.get('country'), 30) or 'unspecified'}",
         "Stats (0-100): " + ", ".join(
             f"{k} {clamp_int(stats.get(k), 0, 100, 50)}" for k in ("happiness", "health", "smarts", "looks")

@@ -360,6 +360,26 @@ button { cursor: pointer; }
 }
 .hero-role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* the clock chip, and the light that moves with it */
+.clock {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  padding: 3px 8px;
+  border-radius: var(--r-chip);
+  font-family: var(--num);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--hour, var(--brass));
+  background: color-mix(in srgb, var(--hour, var(--brass)) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hour, var(--brass)) 30%, transparent);
+}
+body[data-slot="morning"] { --hour: #ffb347; }
+body[data-slot="afternoon"] { --hour: #4fb6ff; }
+body[data-slot="evening"] { --hour: #ff8a5c; }
+body[data-slot="night"] { --hour: #8f9dff; }
+.hero { border-bottom: 1px solid var(--line); box-shadow: 0 1px 0 color-mix(in srgb, var(--hour, var(--brass)) 22%, transparent); }
+
 .money {
   flex-shrink: 0;
   font-family: var(--num);
@@ -546,8 +566,14 @@ button { cursor: pointer; }
   background: radial-gradient(circle at 35% 30%, var(--filament), var(--brass) 45%, #e08e28);
   box-shadow: 0 6px 0 var(--brass-deep), 0 14px 28px rgba(0, 0, 0, 0.5);
   transition: transform 0.08s, box-shadow 0.08s, filter 0.12s;
-  animation: breathe 4s ease-in-out infinite;
 }
+/* only the birthday key breathes, so the big tap is visibly the big one */
+.age-btn.is-night { animation: breathe 4s ease-in-out infinite; }
+.age-btn:not(.is-night) {
+  background: radial-gradient(circle at 35% 30%, #fff, color-mix(in srgb, var(--hour, var(--brass)) 70%, #fff) 45%, var(--hour, var(--brass)));
+  box-shadow: 0 6px 0 color-mix(in srgb, var(--hour, var(--brass)) 55%, #000), 0 14px 28px rgba(0, 0, 0, 0.45);
+}
+.age-btn .age-word { letter-spacing: 0.04em; }
 .age-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--brass-deep), 0 6px 12px rgba(0, 0, 0, 0.5); }
 .age-btn:disabled {
   animation: none;

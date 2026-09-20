@@ -92,42 +92,68 @@ const RANKS = ["", "Senior", "Lead", "Head"];
 /* Activities. Every life stage gets its own things to do, so a 70-year-old never opens the same
    menu as a 20-year-old, and something new keeps unlocking all the way to the end.
    { id, icon, label, cat, min, max, cost, costFrom, once, fx, log, plateau, highlight, need, blocked } */
+/* A year is one day long: morning, afternoon, evening, night. Three taps move the day on, the
+   fourth is your birthday — so "do it three times" and "do it once" can both be true, depending
+   on the thing, and a night out is genuinely a different proposition from a morning run. */
+const M = 0, A = 1, E = 2, N = 3;
+const SLOTS = [
+  { id: "morning", name: "Morning", short: "morning", icon: "🌅", hours: "6am – noon", next: "Afternoon", nextIcon: "🌤️" },
+  { id: "afternoon", name: "Afternoon", short: "afternoon", icon: "🌤️", hours: "noon – 6pm", next: "Evening", nextIcon: "🌆" },
+  { id: "evening", name: "Evening", short: "evening", icon: "🌆", hours: "6pm – 11pm", next: "Night", nextIcon: "🌙" },
+  { id: "night", name: "Night", short: "tonight", icon: "🌙", hours: "11pm – 6am", next: null, nextIcon: null },
+];
+const ANY = [M, A, E, N], DAY = [M, A], LATE = [E, N], OUT = [A, E];
+const EVENT_WEIGHTS = {
+  Baby: [20, 45, 30, 5], Child: [20, 45, 30, 5], Teen: [20, 30, 35, 15],
+  Adult: [30, 30, 25, 15], Senior: [35, 30, 25, 10],
+};
+const slot = () => SLOTS[life.slot || 0];
+
+// what the sheets multiply their gains by: mornings are for the body and the brain, evenings
+// for people, nights for fun you'll pay for tomorrow
+const SLOT_MULT = [
+  { smarts: 1.2, health: 1.2, happiness: 1, looks: 1 },
+  { smarts: 1, health: 1, happiness: 1, looks: 1.2 },
+  { smarts: 1, health: 1, happiness: 1.2, looks: 1 },
+  { smarts: 1.1, health: 0.8, happiness: 1.2, looks: 0.9 },
+];
+
 const CATS = ["Body", "Mind", "Fun", "Care", "Money"];
 
 const ACTIVITIES = [
   // --- the first few years ---
-  { id: "nap", icon: "😴", label: "Take a nap", cat: "Body", min: 0, max: 5, fx: { happiness: [2, 5], health: [1, 3] }, log: "You had a long, cosy nap." },
-  { id: "babble", icon: "🗣️", label: "Babble at everyone", cat: "Mind", min: 0, max: 3, fx: { smarts: [1, 3], happiness: [1, 3] }, log: "You held a long conversation with the cat. Neither of you understood it." },
-  { id: "cuddle", icon: "🤗", label: "Cuddle a parent", cat: "Care", min: 0, max: 8, fx: { happiness: [3, 6] }, bond: ["parent", 4, 9], log: "You fell asleep on somebody's shoulder mid-sentence." },
-  { id: "newword", icon: "🔤", label: "Learn a new word", cat: "Mind", min: 1, max: 5, fx: { smarts: [2, 4] }, log: "Today's word was \"absolutely\". You used it eleven times." },
-  { id: "playground", icon: "🛝", label: "Go to the playground", cat: "Body", min: 2, max: 9, fx: { health: [2, 4], happiness: [3, 6] }, log: "You conquered the big slide. Twice." },
-  { id: "scribble", icon: "🖍️", label: "Scribble on the wall", cat: "Fun", min: 2, max: 6, fx: { happiness: [4, 7] }, bond: ["parent", -4, -1], log: "You created a masterpiece. On the hallway wall." },
+  { id: "nap", when: [A, N], per: 2, icon: "😴", label: "Take a nap", cat: "Body", min: 0, max: 5, fx: { happiness: [2, 5], health: [1, 3] }, log: "You had a long, cosy nap." },
+  { id: "babble", when: ANY, per: 2, icon: "🗣️", label: "Babble at everyone", cat: "Mind", min: 0, max: 3, fx: { smarts: [1, 3], happiness: [1, 3] }, log: "You held a long conversation with the cat. Neither of you understood it." },
+  { id: "cuddle", when: [M, E, N], per: 2, icon: "🤗", label: "Cuddle a parent", cat: "Care", min: 0, max: 8, fx: { happiness: [3, 6] }, bond: ["parent", 4, 9], log: "You fell asleep on somebody's shoulder mid-sentence." },
+  { id: "newword", when: DAY, per: 2, icon: "🔤", label: "Learn a new word", cat: "Mind", min: 1, max: 5, fx: { smarts: [2, 4] }, log: "Today's word was \"absolutely\". You used it eleven times." },
+  { id: "playground", when: DAY, per: 2, icon: "🛝", label: "Go to the playground", cat: "Body", min: 2, max: 9, fx: { health: [2, 4], happiness: [3, 6] }, log: "You conquered the big slide. Twice." },
+  { id: "scribble", when: [M, A, E], per: 2, icon: "🖍️", label: "Scribble on the wall", cat: "Fun", min: 2, max: 6, fx: { happiness: [4, 7] }, bond: ["parent", -4, -1], log: "You created a masterpiece. On the hallway wall." },
 
   // --- childhood ---
-  { id: "walk", icon: "🚶", label: "Go for a walk", cat: "Body", min: 4, fx: { happiness: [2, 5], health: [1, 3] }, log: "You went for a long walk." },
-  { id: "bike", icon: "🚲", label: "Learn to ride a bike", cat: "Body", min: 4, max: 11, once: true, fx: { health: [2, 5], happiness: [5, 9] }, log: "You rode a bike without stabilisers for the first time!", highlight: true, badge: "wheels" },
-  { id: "swim", icon: "🏊", label: "Learn to swim", cat: "Body", min: 4, max: 14, once: true, fx: { health: [3, 6], happiness: [4, 7] }, log: "You swam a whole length without touching the bottom.", highlight: true, badge: "swimmer" },
-  { id: "draw", icon: "🎨", label: "Draw all afternoon", cat: "Fun", min: 4, max: 15, fx: { happiness: [3, 6], smarts: [0, 2] }, log: "You drew your whole family, roughly to scale." },
-  { id: "library", icon: "📚", label: "Read at the library", cat: "Mind", min: 6, fx: { smarts: [2, 5] }, log: "You spent an afternoon reading at the library." },
-  { id: "games", icon: "🎮", label: "Play video games", cat: "Fun", min: 6, fx: { happiness: [3, 6], smarts: [-1, 1] }, log: "You lost a whole evening to video games." },
-  { id: "instrument", icon: "🎸", label: "Practise an instrument", cat: "Mind", min: 7, fx: { smarts: [2, 4], happiness: [1, 4] }, log: "You practised until your fingers ached." },
-  { id: "sleepover", icon: "🛌", label: "Have a sleepover", cat: "Fun", min: 7, max: 17, fx: { happiness: [4, 8] }, bond: ["friend", 6, 12], log: "Nobody slept. That was rather the point." },
-  { id: "scifair", icon: "🔬", label: "Enter the science fair", cat: "Mind", min: 8, max: 18, fx: { smarts: [3, 7], happiness: [1, 4] }, log: "Your volcano erupted more or less on schedule." },
-  { id: "play", icon: "🎭", label: "Audition for the school play", cat: "Fun", min: 7, max: 18, fx: { looks: [1, 4], happiness: [3, 6] }, log: "You got a part with three whole lines." },
+  { id: "walk", when: ANY, per: 3, icon: "🚶", label: "Go for a walk", cat: "Body", min: 4, fx: { happiness: [2, 5], health: [1, 3] }, log: "You went for a long walk." },
+  { id: "bike", when: DAY, per: 1, icon: "🚲", label: "Learn to ride a bike", cat: "Body", min: 4, max: 11, once: true, fx: { health: [2, 5], happiness: [5, 9] }, log: "You rode a bike without stabilisers for the first time!", highlight: true, badge: "wheels" },
+  { id: "swim", when: DAY, per: 1, icon: "🏊", label: "Learn to swim", cat: "Body", min: 4, max: 14, once: true, fx: { health: [3, 6], happiness: [4, 7] }, log: "You swam a whole length without touching the bottom.", highlight: true, badge: "swimmer" },
+  { id: "draw", when: OUT, per: 2, icon: "🎨", label: "Draw all afternoon", cat: "Fun", min: 4, max: 15, fx: { happiness: [3, 6], smarts: [0, 2] }, log: "You drew your whole family, roughly to scale." },
+  { id: "library", when: DAY, per: 2, icon: "📚", label: "Read at the library", cat: "Mind", min: 6, fx: { smarts: [2, 5] }, log: "You spent an afternoon reading at the library." },
+  { id: "games", when: LATE, per: 3, icon: "🎮", label: "Play video games", cat: "Fun", min: 6, fx: { happiness: [3, 6], smarts: [-1, 1] }, log: "You lost a whole evening to video games." },
+  { id: "instrument", when: OUT, per: 2, icon: "🎸", label: "Practise an instrument", cat: "Mind", min: 7, fx: { smarts: [2, 4], happiness: [1, 4] }, log: "You practised until your fingers ached." },
+  { id: "sleepover", when: [N], per: 1, icon: "🛌", label: "Have a sleepover", cat: "Fun", min: 7, max: 17, fx: { happiness: [4, 8] }, bond: ["friend", 6, 12], log: "Nobody slept. That was rather the point." },
+  { id: "scifair", when: DAY, per: 1, icon: "🔬", label: "Enter the science fair", cat: "Mind", min: 8, max: 18, fx: { smarts: [3, 7], happiness: [1, 4] }, log: "Your volcano erupted more or less on schedule." },
+  { id: "play", when: OUT, per: 1, icon: "🎭", label: "Audition for the school play", cat: "Fun", min: 7, max: 18, fx: { looks: [1, 4], happiness: [3, 6] }, log: "You got a part with three whole lines." },
 
   // --- teenage ---
-  { id: "meditate", icon: "🧘", label: "Meditate", cat: "Care", min: 10, fx: { happiness: [3, 7], health: [0, 2] }, log: "You meditated and felt calmer." },
-  { id: "gym", icon: "🏋️", label: "Hit the gym", cat: "Body", min: 12, fx: { health: [2, 5], looks: [1, 3] }, log: "You worked out at the gym." },
-  { id: "volunteer", icon: "🤝", label: "Volunteer", cat: "Care", min: 12, fx: { happiness: [3, 6], smarts: [1, 2] }, log: "You volunteered in your community.", highlight: true, badge: "helper" },
-  { id: "haircut", icon: "✂️", label: "Get a haircut", cat: "Body", min: 6, cost: 25, fx: { looks: [2, 5] }, log: "You got a haircut you mostly like." },
-  { id: "post", icon: "📱", label: "Post something online", cat: "Fun", min: 12, fx: { happiness: [2, 7], looks: [0, 3] }, log: "It did numbers. Modest numbers, but numbers." },
-  { id: "band", icon: "🎤", label: "Start a band", cat: "Fun", min: 13, max: 30, once: true, fx: { happiness: [5, 10], looks: [1, 3] }, log: "You started a band. You are, obviously, the frontperson.", highlight: true, badge: "band" },
-  { id: "makeover", icon: "💇", label: "Get a makeover", cat: "Body", min: 13, cost: 120, cooldown: 2, fx: { looks: [3, 7], happiness: [1, 3] }, log: "You got a fresh new look." },
-  { id: "cook", icon: "🍳", label: "Learn to cook properly", cat: "Care", min: 13, fx: { health: [2, 5], happiness: [2, 4] }, log: "You made dinner for everyone, and it was genuinely good." },
-  { id: "lessons", icon: "🚗", label: "Take driving lessons", cat: "Mind", min: 16, cost: 400, fx: { smarts: [0, 2] }, log: "Another hour of lessons. The instructor's nerves are healing.",
+  { id: "meditate", when: [M, N], per: 2, icon: "🧘", label: "Meditate", cat: "Care", min: 10, fx: { happiness: [3, 7], health: [0, 2] }, log: "You meditated and felt calmer." },
+  { id: "gym", when: [M, E], per: 3, icon: "🏋️", label: "Hit the gym", cat: "Body", min: 12, fx: { health: [2, 5], looks: [1, 3] }, log: "You worked out at the gym." },
+  { id: "volunteer", when: DAY, per: 2, icon: "🤝", label: "Volunteer", cat: "Care", min: 12, fx: { happiness: [3, 6], smarts: [1, 2] }, log: "You volunteered in your community.", highlight: true, badge: "helper" },
+  { id: "haircut", when: DAY, per: 1, icon: "✂️", label: "Get a haircut", cat: "Body", min: 6, cost: 25, fx: { looks: [2, 5] }, log: "You got a haircut you mostly like." },
+  { id: "post", when: ANY, per: 3, icon: "📱", label: "Post something online", cat: "Fun", min: 12, fx: { happiness: [2, 7], looks: [0, 3] }, log: "It did numbers. Modest numbers, but numbers." },
+  { id: "band", when: LATE, per: 1, icon: "🎤", label: "Start a band", cat: "Fun", min: 13, max: 30, once: true, fx: { happiness: [5, 10], looks: [1, 3] }, log: "You started a band. You are, obviously, the frontperson.", highlight: true, badge: "band" },
+  { id: "makeover", when: [A], per: 1, icon: "💇", label: "Get a makeover", cat: "Body", min: 13, cost: 120, cooldown: 2, fx: { looks: [3, 7], happiness: [1, 3] }, log: "You got a fresh new look." },
+  { id: "cook", when: [E], per: 2, icon: "🍳", label: "Learn to cook properly", cat: "Care", min: 13, fx: { health: [2, 5], happiness: [2, 4] }, log: "You made dinner for everyone, and it was genuinely good." },
+  { id: "lessons", when: DAY, per: 3, icon: "🚗", label: "Take driving lessons", cat: "Mind", min: 16, cost: 400, fx: { smarts: [0, 2] }, log: "Another hour of lessons. The instructor's nerves are healing.",
     need: () => (life.licence ? "You already have your licence." : null),
     after: () => { life.lessons = (life.lessons || 0) + 1; } },
-  { id: "drivingtest", icon: "🪪", label: "Take your driving test", cat: "Mind", min: 16, fx: {},
+  { id: "drivingtest", when: DAY, per: 1, icon: "🪪", label: "Take your driving test", cat: "Mind", min: 16, fx: {},
     subText: "More lessons, better odds — pass it and you can buy a car",
     need: () => (life.licence ? "You passed this years ago." : null),
     custom: () => {
@@ -144,34 +170,50 @@ const ACTIVITIES = [
     } },
 
   // --- adult ---
-  { id: "vacation", icon: "🏖️", label: "Take a vacation", cat: "Fun", min: 18, cost: 1800, fx: { happiness: [6, 11], health: [1, 3] },
+  { id: "vacation", when: DAY, per: 1, icon: "🏖️", label: "Take a vacation", cat: "Fun", min: 18, cost: 1800, fx: { happiness: [6, 11], health: [1, 3] },
     after: () => { life.holidays = (life.holidays || 0) + 1; }, log: "You took a proper holiday and came back a different person.", highlight: true },
-  { id: "marathon", icon: "🏃", label: "Run a marathon", cat: "Body", min: 18, max: 60, fx: { health: [5, 9], happiness: [5, 9] }, log: "You ran a marathon. Slowly, but entirely.", highlight: true, badge: "marathon",
+  { id: "marathon", when: [M], per: 1, icon: "🏃", label: "Run a marathon", cat: "Body", min: 18, max: 60, fx: { health: [5, 9], happiness: [5, 9] }, log: "You ran a marathon. Slowly, but entirely.", highlight: true, badge: "marathon",
     need: () => (life.stats.health < 45 ? "You'd need to be a lot fitter first." : null) },
-  { id: "therapy", icon: "🛋️", label: "See a therapist", cat: "Care", min: 16, cost: 600, fx: { happiness: [6, 12], smarts: [0, 2] }, log: "You talked it through with someone who actually listens." },
-  { id: "nightclass", icon: "🌙", label: "Take a night class", cat: "Mind", min: 18, cost: 500, fx: { smarts: [4, 8] }, log: "You took a night class and remembered you like learning things." },
-  { id: "spa", icon: "💆", label: "Spa day", cat: "Body", min: 18, cost: 250, fx: { looks: [3, 6], happiness: [3, 6] }, log: "You spent a day being pampered and regret nothing." },
-  { id: "skydive", icon: "🪂", label: "Go skydiving", cat: "Fun", min: 18, cost: 300, fx: { happiness: [9, 15], health: [-3, 0] }, log: "You jumped out of a perfectly good aeroplane.", highlight: true, badge: "skydiver" },
-  { id: "roadtrip", icon: "🛣️", label: "Take a road trip", cat: "Fun", min: 17, fx: { happiness: [6, 11], health: [-1, 1] },
+  { id: "therapy", when: DAY, per: 2, icon: "🛋️", label: "See a therapist", cat: "Care", min: 16, cost: 600, fx: { happiness: [6, 12], smarts: [0, 2] }, log: "You talked it through with someone who actually listens." },
+  { id: "nightclass", when: LATE, per: 2, icon: "🌙", label: "Take a night class", cat: "Mind", min: 18, cost: 500, fx: { smarts: [4, 8] }, log: "You took a night class and remembered you like learning things." },
+  { id: "spa", when: [A], per: 1, icon: "💆", label: "Spa day", cat: "Body", min: 18, cost: 250, fx: { looks: [3, 6], happiness: [3, 6] }, log: "You spent a day being pampered and regret nothing." },
+  { id: "skydive", when: DAY, per: 1, icon: "🪂", label: "Go skydiving", cat: "Fun", min: 18, cost: 300, fx: { happiness: [9, 15], health: [-3, 0] }, log: "You jumped out of a perfectly good aeroplane.", highlight: true, badge: "skydiver" },
+  { id: "roadtrip", when: [M], per: 1, icon: "🛣️", label: "Take a road trip", cat: "Fun", min: 17, fx: { happiness: [6, 11], health: [-1, 1] },
     need: () => (life.licence && life.assets.some((a) => a.kind === "car") ? null : "You'd need a licence and a car of your own."),
     log: "You drove somewhere far away with the windows down." },
-  { id: "charity", icon: "🎗️", label: "Give to charity", cat: "Care", min: 18, cost: 1000, fx: { happiness: [6, 11] }, log: "You gave a chunk of money to a cause you believe in.", highlight: true, badge: "giver" },
+  { id: "charity", when: ANY, per: 2, icon: "🎗️", label: "Give to charity", cat: "Care", min: 18, cost: 1000, fx: { happiness: [6, 11] }, log: "You gave a chunk of money to a cause you believe in.", highlight: true, badge: "giver" },
 
   // --- later life ---
-  { id: "garden", icon: "🌱", label: "Tend the garden", cat: "Care", min: 45, fx: { happiness: [3, 7], health: [1, 4] }, log: "You spent the season arguing with the roses." },
-  { id: "reunion", icon: "🎉", label: "Go to a reunion", cat: "Fun", min: 40, fx: { happiness: [4, 9] }, log: "Everyone looked older except, obviously, you." },
-  { id: "mentor", icon: "🧑‍🏫", label: "Mentor someone young", cat: "Care", min: 50, fx: { happiness: [4, 8], smarts: [1, 3] }, log: "You passed on everything you know to someone just starting out." },
-  { id: "cruise", icon: "🚢", label: "Go on a cruise", cat: "Fun", min: 60, cost: 4000, cooldown: 2, fx: { happiness: [7, 12], health: [0, 3] },
+  { id: "garden", when: DAY, per: 3, icon: "🌱", label: "Tend the garden", cat: "Care", min: 45, fx: { happiness: [3, 7], health: [1, 4] }, log: "You spent the season arguing with the roses." },
+  { id: "reunion", when: [E], per: 1, icon: "🎉", label: "Go to a reunion", cat: "Fun", min: 40, fx: { happiness: [4, 9] }, log: "Everyone looked older except, obviously, you." },
+  { id: "mentor", when: DAY, per: 2, icon: "🧑‍🏫", label: "Mentor someone young", cat: "Care", min: 50, fx: { happiness: [4, 8], smarts: [1, 3] }, log: "You passed on everything you know to someone just starting out." },
+  { id: "cruise", when: [M], per: 1, icon: "🚢", label: "Go on a cruise", cat: "Fun", min: 60, cost: 4000, cooldown: 2, fx: { happiness: [7, 12], health: [0, 3] },
     after: () => { life.holidays = (life.holidays || 0) + 1; }, log: "You spent two weeks at sea eating spectacularly.", highlight: true },
-  { id: "memoir", icon: "✍️", label: "Write your memoir", cat: "Mind", min: 62, once: true, fx: { smarts: [2, 5], happiness: [5, 9] }, log: "You wrote it all down. Some of it is even true.", highlight: true, badge: "memoir" },
-  { id: "babysit", icon: "👵", label: "Babysit the grandkids", cat: "Care", min: 45, fx: { happiness: [6, 11], health: [-2, 0] },
+  { id: "memoir", when: [M, N], per: 1, icon: "✍️", label: "Write your memoir", cat: "Mind", min: 62, once: true, fx: { smarts: [2, 5], happiness: [5, 9] }, log: "You wrote it all down. Some of it is even true.", highlight: true, badge: "memoir" },
+  { id: "babysit", when: OUT, per: 2, icon: "👵", label: "Babysit the grandkids", cat: "Care", min: 45, fx: { happiness: [6, 11], health: [-2, 0] },
     need: () => (life.people.some((p) => p.alive && GRANDKID_ROLES.includes(p.role)) ? null : "No grandchildren to spoil yet."),
     bond: ["grandchild", 8, 14], log: "You fed them too much sugar and sent them home. Perfect." },
+
+  // --- things that only happen at night ---
+  { id: "scroll", when: [N], per: 3, icon: "📱", label: "Scroll in bed", cat: "Fun", min: 11, fx: { happiness: [1, 3], health: [-2, 0] }, log: "You told yourself five more minutes, four times." },
+  { id: "allnight", when: [N], per: 1, icon: "🦉", label: "Stay up all night", cat: "Fun", min: 13, fx: { happiness: [6, 11], health: [-6, -3] },
+    subText: "Tomorrow morning will hurt", after: () => { life.groggy = "pending"; }, log: "You watched the sky go grey. Worth it." },
+  { id: "latecall", when: [N], per: 2, icon: "☎️", label: "Late-night call", cat: "Care", min: 10, fx: { happiness: [2, 4] }, bond: ["friend", 5, 10],
+    need: () => (life.people.some((p) => p.alive && p.role === "Friend") ? null : "You'd need a friend to call."),
+    log: "You talked until one of you fell asleep." },
+  { id: "night out", when: [E], per: 2, icon: "🌃", label: "Go out tonight", cat: "Fun", min: 15, cost: 35, costFrom: 18, fx: { happiness: [4, 8], health: [-1, 0] },
+    subText: "You might meet someone", custom: () => nightOut(), log: "You went out. The night got away from you." },
+
+  // --- and things that only happen first thing ---
+  { id: "sleepin", when: [M], per: 1, icon: "🛌", label: "Sleep in", cat: "Body", min: 6, fx: { health: [2, 5], happiness: [1, 3] },
+    subText: "You'll skip the rest of the morning", after: () => { if (life.slot === M) enterSlot(A); }, log: "You slept until half eleven and regret nothing." },
+  { id: "breakfast", when: [M], per: 1, icon: "🍳", label: "Breakfast with everyone", cat: "Care", min: 3, fx: { happiness: [2, 5] }, bond: ["household", 4, 8],
+    log: "Somebody burnt the toast. It was a good morning anyway." },
 
   // --- always there ---
   // Not a vending machine: two years between visits, worth a lot when you're ill and almost
   // nothing when you're well, and the check-up itself can find something.
-  { id: "doctor", icon: "🩺", label: "Visit the doctor", cat: "Body", min: 0, cost: 220, costFrom: 18, cooldown: 2, fx: {},
+  { id: "doctor", when: DAY, per: 1, icon: "🩺", label: "Visit the doctor", cat: "Body", min: 0, cost: 220, costFrom: 18, cooldown: 2, fx: {},
     subText: "Worth a lot when you're ill, little when you're well",
     need: () => (life.stats.health >= 92 ? "You're in rude health — the doctor would just send you home." : null),
     custom: () => {
@@ -315,7 +357,19 @@ function save() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(life)); } catch { /* storage full or blocked — play on */ }
 }
 function load() {
-  try { return JSON.parse(localStorage.getItem(SAVE_KEY) || "null"); } catch { return null; }
+  try { return migrate(JSON.parse(localStorage.getItem(SAVE_KEY) || "null")); } catch { return null; }
+}
+
+function migrate(s) {
+  if (!s || s.slot !== undefined) return s;
+  s.slot = N;
+  s.usedToday = {};
+  s.eventSlot = -1;
+  s.eventDone = true;
+  s.yearMark = (s.log || []).length;
+  s.yearStart = { ...s.stats, money: s.money };
+  s.groggy = false;
+  return s;
 }
 function graveyard() {
   try { return JSON.parse(localStorage.getItem(GRAVE_KEY) || "[]"); } catch { return []; }
@@ -385,6 +439,10 @@ function createLife({ name, gender, country }) {
     log: [],
     highlights: [],
     doneThisYear: {},
+    usedToday: {},
+    slot: 0,
+    eventSlot: -1,
+    eventDone: true,
     onceDone: {},
     clubs: [],
     badges: [],
@@ -442,7 +500,9 @@ function appendLogEntry(entry) {
   if (!bulkRender) scrollLogToEnd(true);
 }
 
-// a brass light running down the page: the machine printing another year
+const timeSweep = () => yearSweep();
+
+// a light running down the page: the machine moving time on
 function yearSweep() {
   if (reducedMotion() || $("game-screen").hidden) return;
   const log = $("log");
@@ -513,6 +573,17 @@ function renderHero() {
   }
   $("hero-role").textContent = life.job ? life.job.title : life.retired ? "Retired" : life.school ? schoolLabel(life.school) : st;
 
+  // the clock: a chip in the hero, a tint on the page, and a key that knows where the day goes
+  const s = life.slot || 0;
+  const clock = $("clock");
+  clock.textContent = `${SLOTS[s].icon} ${SLOTS[s].name}`;
+  document.body.dataset.slot = SLOTS[s].id;
+  const key = $("age-btn");
+  key.querySelector(".age-plus").textContent = s < N ? SLOTS[s].nextIcon : "+1";
+  key.querySelector(".age-word").textContent = s < N ? SLOTS[s].next : "Age";
+  key.classList.toggle("is-night", s === N);
+  key.setAttribute("aria-label", s < N ? `Move to the ${SLOTS[s].next.toLowerCase()}` : "Age up one year");
+
   const money = $("money");
   const to = Math.round(life.money);
   if (shown.money === null) money.textContent = fmtMoney(to);
@@ -551,8 +622,9 @@ function renderStats() {
 // How many things are still worth doing in each sheet this year — the honest replacement for
 // an energy meter: a count of what's left, not a budget you spend.
 function sheetTodo(view) {
-  if (view === "activities") return ACTIVITIES.filter((a) => activityOpen(a) && !done(a.id, perYear(a.id)) && !(a.need && a.need()) && !(a.cooldown && cooling(a.id, a.cooldown))).length;
-  if (view === "people") return life.people.filter((p) => p.alive && !done(`person:${p.id}`)).length;
+  // only what you can actually do right now, this part of this day
+  if (view === "activities") return ACTIVITIES.filter((a) => activityOpen(a) && openNow(a.when) && !usedNow(a.id) && !done(a.id, a.per || 1) && !(a.need && a.need()) && !(a.cooldown && cooling(a.id, a.cooldown))).length;
+  if (view === "people") return life.people.filter((p) => p.alive && !usedNow(`person:${p.id}`) && !done(`person:${p.id}`, 2)).length;
   if (view === "career") {
     let n = 0;
     if (life.school) n += (done("study") ? 0 : 1) + (life.clubs || []).filter((c) => !done(`club:${c}`)).length;
@@ -644,16 +716,46 @@ function quietLine() {
   return pick(pool);
 }
 
-function ageUp() {
+function advance() {
   if (!life?.alive || busy) return;
   closeSheet();
+  if ((life.slot || 0) < N) return enterSlot((life.slot || 0) + 1);
+  rollYear();
+}
+
+function enterSlot(i) {
+  life.slot = i;
+  life.usedToday = {};
+  if (i === M && life.groggy === "pending") life.groggy = true;
+  timeSweep();
+  renderAll();
+  save();
+  if (!life.eventDone && life.eventSlot === i) { life.eventDone = true; return runEvent(); }
+  if (Math.random() < 0.4) addLog(slotLine(), "action");
+  renderAll();
+  save();
+}
+
+function pickEventSlot() {
+  const w = EVENT_WEIGHTS[stage(life.age)] || EVENT_WEIGHTS.Adult;
+  let roll = rand(0, w.reduce((a, b) => a + b, 0));
+  for (let i = 0; i < w.length; i++) { roll -= w[i]; if (roll <= 0) return i; }
+  return A;
+}
+
+function rollYear() {
+  if (!life?.alive || busy) return;
+  life.yearStart = { ...life.stats, money: life.money };
   yearSweep();
   life.age += 1;
+  life.slot = M;
   life.prepped = uses("study"); // revision done during the year just gone, read by the exams
   life.doneThisYear = {};
+  life.usedToday = {};
   life.gained = {};
   life.applied = 0;
   life.rejected = [];
+  life.groggy = false;
   const before = life.log.length;
 
   yearlyDrift();
@@ -675,12 +777,15 @@ function ageUp() {
   const worth = life.money + life.assets.reduce((t, a) => t + a.value, 0);
   life.peak = Math.max(life.peak || 0, worth);
   checkBadges();
-  // a "quiet year" line only when the year really was quiet — never right above an event
+  // one AI event a year, dropped into whichever part of the day that life stage lives in
   const eventful = Math.random() < (life.age < 3 ? 0.5 : 0.88);
+  life.eventDone = !eventful;
+  life.eventSlot = eventful ? pickEventSlot() : -1;
+  life.yearMark = life.log.length;
   if (!eventful && life.log.length === before) addLog(quietLine(), "action");
   renderAll();
   save();
-  if (eventful) runEvent();
+  if (life.eventSlot === M) { life.eventDone = true; runEvent(); }
 }
 
 function yearlyDrift() {
@@ -1010,6 +1115,8 @@ function lifeForAI() {
     school: life.school ? schoolLabel(life.school) : life.education !== "none" ? `finished ${life.education}` : null,
     job: life.job ? `${life.job.title}, ${fmtMoney(life.job.salary)} a year` : life.retired ? "retired" : null,
     people,
+    timeOfDay: slot().name.toLowerCase(),
+    hour: slot().hours,
     recent: life.log.filter((e) => e.kind !== "action").slice(-8).map((e) => (e.title ? `${e.title}: ${e.text}` : e.text)),
   };
 }
@@ -1021,7 +1128,7 @@ function setBusy(on) {
 
 function openEventCard() {
   $("event-modal").hidden = false;
-  $("event-kicker").textContent = `Age ${life.age} · ${stage(life.age)}`;
+  $("event-kicker").textContent = `Age ${life.age} · ${stage(life.age)} · ${slot().name}`;
   for (const id of ["event-title", "event-text", "outcome-text"]) {
     $(id)._typer?.stop();
     $(id).textContent = "";
@@ -1231,7 +1338,9 @@ function renderSheet() {
   $("sheet-back").hidden = sheetView.view !== "person";
   ({ career: sheetCareer, people: sheetPeople, person: sheetPerson, assets: sheetAssets, activities: sheetActivities, you: sheetYou })[sheetView.view](body, sheetView.arg);
   const n = sheetTodo(sheetView.view === "person" ? "people" : sheetView.view);
-  $("sheet-ledger").textContent = `Age ${life.age} · ${n} left to do here this year`;
+  $("sheet-ledger").textContent = n
+    ? `${slot().name} · ${n} to do here`
+    : `${slot().name} · nothing left here ${slot().short === "tonight" ? "tonight" : `this ${slot().short}`}`;
   body.scrollTop = keepScroll;
   for (const btn of document.querySelectorAll(".dock-btn")) btn.classList.toggle("open", btn.dataset.sheet === sheetView.view || (sheetView.view === "person" && btn.dataset.sheet === "people"));
   renderAll();
@@ -1244,8 +1353,11 @@ function renderSheet() {
    year, everything" was too blunt — a trip to the gym is not a wedding. Each action carries its
    own allowance instead. */
 const uses = (id) => (life.doneThisYear && life.doneThisYear[id]) || 0;
+const usedNow = (id) => (life.usedToday && life.usedToday[id]) || 0;
 const left = (id, limit = 1) => Math.max(0, limit - uses(id));
 const done = (id, limit = 1) => left(id, limit) === 0;
+const openNow = (when) => (when || ANY).includes(life.slot || 0);
+const whenWords = (when) => (when || ANY).map((i) => SLOTS[i].name.toLowerCase()).join(" or ");
 // life.last remembers the age an action was last used, and survives the year rollover, so some
 // things can carry a cooldown measured in years rather than resetting every birthday.
 const yearsSince = (id) => (life.last && life.last[id] !== undefined ? life.age - life.last[id] : 999);
@@ -1254,17 +1366,28 @@ function cooling(id, years) {
   return since < years ? years - since : 0;
 }
 
-function useAction(id, cost = 0, limit = 1) {
-  if (done(id, limit)) {
-    toast(limit > 1
-      ? `That's your ${limit} for this year. Tap Age to move on.`
-      : "You already did that this year. Tap Age to move on.");
+function useAction(id, cost = 0, opts = 1) {
+  const { per = 1, when = ANY, label = "That" } = typeof opts === "number" ? { per: opts } : opts;
+  if (!openNow(when)) {
+    toast(`Not ${slot().short === "tonight" ? "tonight" : `this ${slot().short}`} — ${label.toLowerCase()} is a ${whenWords(when)} thing.`);
+    return false;
+  }
+  if (usedNow(id)) {
+    toast(`You've done that this ${slot().short === "tonight" ? "evening" : slot().short}. Move the day on.`);
+    return false;
+  }
+  if (done(id, per)) {
+    toast(per > 1
+      ? `That's your ${per} for the year. Tap through to your birthday.`
+      : "You already did that this year. Tap through to your birthday.");
     return false;
   }
   if (!payFor(cost)) return false;
   if (!life.doneThisYear) life.doneThisYear = {};
+  if (!life.usedToday) life.usedToday = {};
   if (!life.last) life.last = {};
   life.doneThisYear[id] = uses(id) + 1;
+  life.usedToday[id] = 1;
   life.last[id] = life.age;
   return true;
 }
@@ -1357,8 +1480,10 @@ function bump(stat, lo, hi) {
 }
 
 function gain(stat, lo, hi) {
-  const raw = rand(lo, hi);
+  let raw = rand(lo, hi);
   if (raw <= 0) return bump(stat, lo, hi); // penalties always land in full
+  // the hour changes how well an hour is spent, never how much a year can hold
+  raw *= (SLOT_MULT[life.slot || 0][stat] || 1) * ((life.slot || 0) === M && life.groggy ? 0.6 : 1);
   const fade = clamp((SHEET_CEIL - life.stats[stat]) / 30, 0, 1);
   if (!life.gained) life.gained = {};
   const spent = life.gained[stat] || 0;
@@ -2086,15 +2211,7 @@ function sheetAssets(body) {
 
 /* ----- activities ----- */
 
-/* How often a thing can be done in one year. Everyday habits come round again; the big ones
-   don't. Anything not listed is once a year, and gain() still fades toward its ceiling, so
-   repeating something cheap stops paying long before it breaks the balance. */
-const PER_YEAR = {
-  nap: 4, walk: 3, playground: 3, gym: 3, games: 3, post: 3, garden: 3, babysit: 3, meditate: 3, babble: 3,
-  library: 2, instrument: 2, draw: 2, cook: 2, sleepover: 2, newword: 2, cuddle: 2, scribble: 2,
-  haircut: 2, volunteer: 2, therapy: 2, spa: 2, roadtrip: 2, charity: 2, mentor: 2, lessons: 3, drivingtest: 2,
-};
-const perYear = (id) => PER_YEAR[id] || 1;
+const perYear = (id) => (ACTIVITIES.find((a) => a.id === id) || {}).per || 1;
 
 const activityCost = (act) => (act.cost && life.age >= (act.costFrom || 0) ? act.cost : 0);
 const activityOpen = (act) => life.age >= act.min && (act.max === undefined || life.age <= act.max)
@@ -2105,8 +2222,9 @@ function effectLine(act) {
   const cost = activityCost(act);
   if (cost) parts.push(life.age < 18 ? `${fmtMoney(cost)} — ask a parent` : fmtMoney(cost));
   if (act.cooldown) parts.push(`every ${act.cooldown} years`);
-  else if (act.id && perYear(act.id) > 1) parts.push(`${perYear(act.id)}× a year`);
+  else if ((act.per || 1) > 1) parts.push(`${act.per}× a year`);
   if (act.once) parts.push("once in a lifetime");
+  if (act.when && act.when.length < 4) parts.push(whenWords(act.when));
   return parts.join(" · ") || "See what happens";
 }
 
@@ -2116,6 +2234,7 @@ function bondTarget(kind) {
     parent: alive.filter((p) => p.role === "Mother" || p.role === "Father"),
     friend: alive.filter((p) => p.role === "Friend"),
     grandchild: alive.filter((p) => GRANDKID_ROLES.includes(p.role)),
+    household: alive.filter((p) => !p.pet && (FAMILY_ROLES.includes(p.role) || LOVE_ROLES.includes(p.role))),
   };
   const pool = pools[kind] || [];
   return pool.length ? pick(pool) : null;
@@ -2126,7 +2245,7 @@ function doActivity(act) {
   if (blocked) { toast(blocked); return; }
   const wait = act.cooldown ? cooling(act.id, act.cooldown) : 0;
   if (wait) { toast(`Not again for ${wait} year${wait === 1 ? "" : "s"}.`); return; }
-  if (!useAction(act.id, activityCost(act), perYear(act.id))) return;
+  if (!useAction(act.id, activityCost(act), { per: act.per || 1, when: act.when, label: act.label })) return;
   if (act.once) {
     if (!life.onceDone) life.onceDone = {};
     life.onceDone[act.id] = true;
@@ -2157,6 +2276,56 @@ function doActivity(act) {
   save();
 }
 
+/* A night out is the game handing you the social layer instead of waiting for you to find it. */
+function nightOut() {
+  gain("happiness", 4, 8);
+  gain("health", -1, 0);
+  const friends = life.people.filter((p) => p.alive && p.role === "Friend");
+  const single = !life.people.some((p) => p.alive && LOVE_ROLES.includes(p.role));
+  if (friends.length < MAX_FRIENDS && Math.random() < 0.3) {
+    const g = Math.random() < 0.5 ? "female" : "male";
+    const friend = newPerson("Friend", randomName(life.country, g), clamp(life.age + randInt(-2, 2), 4, 110), randInt(40, 62), { gender: g, met: life.age });
+    life.people.push(friend);
+    addLog(`You went out and came back knowing ${friend.name}.`, "milestone", { highlight: true });
+    toast(`You met ${firstName(friend.name)}`);
+    return;
+  }
+  if (single && life.age >= 16 && Math.random() < 0.14) {
+    const g = life.gender === "female" ? "male" : "female";
+    const age = life.age < 18 ? clamp(life.age + randInt(-1, 1), 13, 17) : clamp(life.age + randInt(-3, 3), 18, 110);
+    const partner = newPerson("Partner", randomName(life.country, g), age, randInt(48, 66), { gender: g, met: life.age });
+    life.people.push(partner);
+    addLog(`You went out, got talking to ${partner.name}, and left with their number.`, "milestone", { highlight: true });
+    toast(`You met ${firstName(partner.name)}`);
+    return;
+  }
+  addLog("You went out. The night got away from you.", "action");
+  toast("A good night");
+}
+
+/* The three parts of the day that aren't the AI's belong to these — free, instant, and specific
+   to the hour, so morning never reads like night. */
+const SLOT_LINES = [
+  ["The morning went by in a blur of toast and looking for things.", "You woke up before the alarm and lay there a while.", "A slow start. The good kind."],
+  ["The afternoon dragged in the way afternoons do.", "You got one useful thing done and called it a win.", "The afternoon disappeared somewhere."],
+  ["The evening went quietly.", "You ate something you didn't cook and watched something you didn't choose.", "A long, easy evening."],
+  ["You slept badly and dreamt about nothing.", "You stayed up later than you meant to.", "The house went quiet and so did you."],
+];
+
+function slotLine() {
+  const pool = [...SLOT_LINES[life.slot || 0]];
+  const alive = life.people.filter((p) => p.alive);
+  const spouse = alive.find((p) => p.role === "Spouse" || p.role === "Partner");
+  const pet = alive.find((p) => p.pet);
+  const s = life.slot || 0;
+  if (life.school && s === M) pool.push("Double maths. You survived it.");
+  if (life.job && s <= A) pool.push("Work happened. It mostly always does.");
+  if (spouse && s >= E) pool.push(`You and ${firstName(spouse.name)} didn't say much. It was fine.`);
+  if (pet && s === M) pool.push(`${pet.name} woke you up early, as usual.`);
+  if (s === N && life.age < 6) pool.push("You fell asleep halfway through the story.");
+  return pick(pool);
+}
+
 function sheetActivities(body) {
   $("sheet-title").textContent = "Activities";
   const open = ACTIVITIES.filter(activityOpen);
@@ -2165,9 +2334,12 @@ function sheetActivities(body) {
     if (!list.length) continue;
     sectionLabel(body, cat);
     for (const act of list) {
+      const wrongTime = !openNow(act.when);
       body.append(row({
-        icon: act.icon, color: STAT_META[Object.keys(act.fx || {})[0]]?.color || "var(--lamp)",
-        title: act.label, sub: effectLine(act), doneId: act.id, doneLimit: perYear(act.id),
+        icon: act.icon, color: wrongTime ? "var(--faint)" : STAT_META[Object.keys(act.fx || {})[0]]?.color || "var(--lamp)",
+        title: act.label, sub: effectLine(act), doneId: act.id, doneLimit: act.per || 1,
+        disabled: wrongTime, side: wrongTime ? whenWords(act.when) : null,
+        reason: wrongTime ? `${act.label} is a ${whenWords(act.when)} thing. Move the day on.` : null,
         onclick: () => doActivity(act),
       }));
     }
@@ -2433,7 +2605,7 @@ for (const b of $("setup-gender").querySelectorAll("button")) {
 $("begin-btn").addEventListener("click", beginLife);
 $("continue-btn").addEventListener("click", () => { life = load(); enterGame(); });
 $("new-life-btn").addEventListener("click", () => { initStart(); showScreen("start-screen"); });
-$("age-btn").addEventListener("click", ageUp);
+$("age-btn").addEventListener("click", advance);
 for (const b of document.querySelectorAll(".dock-btn")) b.addEventListener("click", () => openSheet(b.dataset.sheet));
 $("sheet-close").addEventListener("click", closeSheet);
 $("sheet-back").addEventListener("click", () => openSheet("people"));
@@ -2451,7 +2623,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "Escape") closeSheet();
-  else if ((e.key === " " || e.key === "Enter") && !onControl && !$("game-screen").hidden && $("sheet").hidden) { e.preventDefault(); ageUp(); }
+  else if ((e.key === " " || e.key === "Enter") && !onControl && !$("game-screen").hidden && $("sheet").hidden) { e.preventDefault(); advance(); }
 });
 
 // Keep a free-tier host awake while someone is actually playing: a sleeping instance takes the
