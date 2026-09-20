@@ -544,6 +544,10 @@ button.row:disabled { opacity: 0.45; cursor: not-allowed; }
 .row-sub { font-size: 13px; color: var(--dim); margin-top: 1px; }
 .row-side { flex-shrink: 0; font-size: 13px; font-weight: 700; color: var(--dim); font-variant-numeric: tabular-nums; }
 .row-side.good { color: var(--money); }
+.row-side.done { color: var(--money); }
+/* already used this year: still readable, plainly spent */
+.row.is-done { opacity: 0.5; }
+button.row.is-done:hover { background: rgba(255, 255, 255, 0.025); border-color: var(--line); }
 .row .chev { color: var(--faint); }
 .mini-bar { height: 5px; margin-top: 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
 .mini-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--c, var(--lamp)); }

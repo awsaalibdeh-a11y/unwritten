@@ -99,14 +99,15 @@ const ACTIVITIES = [
   { id: "gym", icon: "🏋️", label: "Hit the gym", sub: "Health & looks", min: 12, fx: { health: [3, 7], looks: [1, 3] }, log: "You worked out at the gym." },
   { id: "volunteer", icon: "🤝", label: "Volunteer", sub: "Happiness & smarts", min: 12, fx: { happiness: [3, 6], smarts: [1, 2] }, log: "You volunteered in your community.", highlight: true },
   { id: "makeover", icon: "💇", label: "Get a makeover", sub: "Looks", min: 13, cost: 120, fx: { looks: [4, 9], happiness: [1, 3] }, log: "You got a fresh new look." },
-  { id: "doctor", icon: "🩺", label: "Visit the doctor", sub: "Health", min: 0, cost: 150, costFrom: 18, fx: { health: [3, 12] }, log: "You got a check-up at the doctor." },
+  { id: "doctor", icon: "🩺", label: "Visit the doctor", sub: "Health", min: 0, cost: 150, costFrom: 18, fx: { health: [4, 14] },
+    log: "You got a check-up at the doctor.", plateau: "The doctor found nothing to fix and sent you home.",
+    blocked: () => (life.stats.health >= 92 ? "You're in perfect health — the doctor would just send you home." : null) },
   { id: "vacation", icon: "🏖️", label: "Take a vacation", sub: "A lot of happiness", min: 18, cost: 1800, fx: { happiness: [8, 15], health: [1, 3] }, log: "You took a relaxing vacation.", highlight: true },
 ];
 
 const CARS = [["Used hatchback", 4000, "🚗"], ["Family sedan", 22000, "🚙"], ["SUV", 38000, "🛻"], ["Electric car", 45000, "🔋"], ["Sports car", 95000, "🏎️"]];
 const HOMES = [["Studio apartment", 120000, "🏢"], ["Townhouse", 280000, "🏘️"], ["Family house", 420000, "🏠"], ["Beach villa", 1200000, "🏝️"], ["Mansion", 3000000, "🏰"]];
 
-const ACTIONS_PER_YEAR = 4;
 const SAVE_KEY = "unwritten_life_v1";
 const GRAVE_KEY = "unwritten_graveyard_v1";
 
@@ -224,7 +225,7 @@ function createLife({ name, gender, country }) {
     assets: [],
     log: [],
     highlights: [],
-    actions: ACTIONS_PER_YEAR,
+    doneThisYear: {},
     jobBoard: null,
   };
   const mom = people[0], dad = people[1];
@@ -347,7 +348,7 @@ function ageUp() {
   if (!life?.alive || busy) return;
   closeSheet();
   life.age += 1;
-  life.actions = ACTIONS_PER_YEAR;
+  life.doneThisYear = {};
   const before = life.log.length;
 
   yearlyDrift();
@@ -373,8 +374,8 @@ function yearlyDrift() {
   if (life.age > 45) s.health -= rand(0, (life.age - 45) / 8);
   if (life.age > 35) s.looks -= rand(0, life.age > 60 ? 2 : 1);
   const bonds = life.people.filter((p) => p.alive && !p.pet).map((p) => p.bond);
-  if (bonds.length) s.happiness += (bonds.reduce((a, b) => a + b, 0) / bonds.length - 50) / 40;
-  s.happiness += (60 - s.happiness) * 0.05; // moods drift back toward normal, good or bad
+  if (bonds.length) s.happiness += (bonds.reduce((a, b) => a + b, 0) / bonds.length - 50) / 50;
+  s.happiness += (60 - s.happiness) * 0.08; // moods drift back toward normal, good or bad
   if (life.money < -20000) s.happiness -= 1; // debt weighs on you
   for (const k of STATS) s[k] = clamp(s[k], 0, 100);
 }
@@ -860,9 +861,14 @@ function renderSheet() {
   renderAll();
 }
 
-function spend(cost = 0) {
-  if (life.actions <= 0) {
-    toast("You're out of energy this year — tap Age to keep living.");
+/* No energy meter: every action is simply once a year, and the row says so once you've used it.
+   A year is the resource — if you want the gym AND the doctor, you have to live longer. */
+
+const done = (id) => !!(life.doneThisYear && life.doneThisYear[id]);
+
+function useAction(id, cost = 0) {
+  if (done(id)) {
+    toast("You already did that this year. Tap Age to move on.");
     return false;
   }
   // free actions must stay free even for someone deep in student debt
@@ -870,31 +876,38 @@ function spend(cost = 0) {
     toast(`You can't afford that (${fmtMoney(cost)}).`);
     return false;
   }
-  life.actions -= 1;
+  if (!life.doneThisYear) life.doneThisYear = {};
+  life.doneThisYear[id] = true;
   life.money -= cost;
   return true;
 }
+
+// Gains shrink as a stat approaches 100, so no amount of repetition pins you at a perfect 100:
+// the same hour at the gym is worth far less to an athlete than to a couch potato.
 function bump(stat, lo, hi) {
-  const d = Math.round(rand(lo, hi));
+  const raw = rand(lo, hi);
+  const room = (100 - life.stats[stat]) / 100;
+  // curve, not a cliff: full value at rock bottom, about a third at 80, nothing at all near 100
+  const d = Math.round(raw > 0 ? raw * Math.pow(room, 0.75) : raw);
   life.stats[stat] = clamp(life.stats[stat] + d, 0, 100);
   return d;
 }
-function actionsLeft(body) {
-  body.append(el("p", { class: "actions-left" }, life.actions > 0
-    ? `${life.actions} action${life.actions === 1 ? "" : "s"} left this year`
-    : "No energy left this year — tap Age to continue"));
-}
-function row({ icon, color, title, sub, side, sideClass, onclick, disabled, bar, barColor }) {
+
+function row({ icon, color, title, sub, side, sideClass, onclick, disabled, bar, barColor, doneId }) {
+  const isDone = doneId ? done(doneId) : false;
   const tag = onclick ? "button" : "div";
   const emoji = /\p{Extended_Pictographic}/u.test(icon);
-  return el(tag, { class: "row", type: onclick ? "button" : null, onclick, disabled: disabled || null, style: color ? `--c: ${color}` : null },
+  return el(tag, {
+    class: `row${isDone ? " is-done" : ""}`, type: onclick ? "button" : null, onclick,
+    disabled: disabled || null, style: color ? `--c: ${color}` : null,
+  },
     el("span", { class: `row-icon${emoji ? " emoji" : ""}` }, icon),
     el("span", { class: "row-main" },
       el("span", { class: "row-title" }, title),
       sub ? el("span", { class: "row-sub", style: "display:block" }, sub) : null,
       bar !== undefined ? el("span", { class: "mini-bar", style: `display:block; ${barColor ? `--c:${barColor}` : ""}` }, el("span", { style: `width:${Math.round(bar)}%` })) : null),
-    side ? el("span", { class: `row-side ${sideClass || ""}` }, side) : null,
-    onclick && !disabled ? svgIcon("i-chevron", 16, "chev") : null);
+    isDone ? el("span", { class: "row-side done" }, "✓ done") : side ? el("span", { class: `row-side ${sideClass || ""}` }, side) : null,
+    onclick && !disabled && !isDone ? svgIcon("i-chevron", 16, "chev") : null);
 }
 function sectionLabel(body, text) { body.append(el("p", { class: "section-label" }, text)); }
 
@@ -903,7 +916,6 @@ function sectionLabel(body, text) { body.append(el("p", { class: "section-label"
 function sheetCareer(body) {
   $("sheet-title").textContent = life.age < 18 || life.school ? "School" : "Career";
   const a = life.age;
-  actionsLeft(body);
 
   if (a < 5) {
     body.append(el("p", { class: "note" }, "Too young for school. Your only job right now is being adorable."));
@@ -915,11 +927,13 @@ function sheetCareer(body) {
     body.append(row({ icon: life.school.stage === "university" ? "🎓" : "🏫", color: "var(--smarts)", title: schoolLabel(life.school), sub: `Grades ${Math.round(life.school.grades)}%`, bar: life.school.grades, barColor: "var(--smarts)" }));
     body.append(row({
       icon: "✏️", color: "var(--smarts)", title: "Study harder", sub: "Better grades, more smarts",
-      onclick: () => { if (!spend()) return; life.school.grades = clamp(life.school.grades + rand(8, 14), 0, 100); const d = bump("smarts", 1, 3); addLog(`You buckled down and studied hard. (+${d} smarts)`, "action"); renderSheet(); save(); },
+      doneId: "study",
+      onclick: () => { if (!useAction("study")) return; life.school.grades = clamp(life.school.grades + rand(8, 14), 0, 100); const d = bump("smarts", 1, 3); addLog(`You buckled down and studied hard.${d ? ` (+${d} smarts)` : ""}`, "action"); renderSheet(); save(); },
     }));
     body.append(row({
       icon: "😎", color: "var(--happy)", title: "Slack off", sub: "Fun now, grades later",
-      onclick: () => { if (!spend()) return; life.school.grades = clamp(life.school.grades - rand(6, 12), 0, 100); bump("happiness", 3, 6); addLog("You slacked off and had a great time. Your grades didn't.", "action"); renderSheet(); save(); },
+      doneId: "slack",
+      onclick: () => { if (!useAction("slack")) return; life.school.grades = clamp(life.school.grades - rand(6, 12), 0, 100); bump("happiness", 3, 6); addLog("You slacked off and had a great time. Your grades didn't.", "action"); renderSheet(); save(); },
     }));
   }
 
@@ -928,7 +942,7 @@ function sheetCareer(body) {
     body.append(row({
       icon: "🎓", color: "var(--looks)", title: "Go to university", sub: "$10,000 a year for 4 years — unlocks the best jobs",
       onclick: () => {
-        if (!spend()) return;
+        if (!useAction("university")) return;
         life.school = { stage: "university", year: 1, grades: clamp(life.stats.smarts + rand(-10, 10), 25, 95) };
         addLog("You enrolled at university. Time to find out what you love.", "milestone", { highlight: true });
         renderSheet(); save();
@@ -942,12 +956,13 @@ function sheetCareer(body) {
     body.append(row({ icon: j.icon || "💼", color: "var(--money)", title: j.title, sub: `${fmtMoney(j.salary)} a year · ${j.years} year${j.years === 1 ? "" : "s"} · performance`, bar: j.performance, barColor: "var(--money)" }));
     body.append(row({
       icon: "💪", color: "var(--money)", title: "Work harder", sub: "Performance up, happiness down a little",
-      onclick: () => { if (!spend()) return; j.performance = clamp(j.performance + rand(10, 18), 0, 100); bump("happiness", -3, -1); addLog("You put in extra hours at work.", "action"); renderSheet(); save(); },
+      doneId: "workharder",
+      onclick: () => { if (!useAction("workharder")) return; j.performance = clamp(j.performance + rand(10, 18), 0, 100); bump("happiness", -2, -1); addLog("You put in extra hours at work.", "action"); renderSheet(); save(); },
     }));
     body.append(row({
-      icon: "💰", color: "var(--money)", title: "Ask for a raise", sub: "Better odds when your performance is high",
+      icon: "💰", color: "var(--money)", title: "Ask for a raise", sub: "Better odds when your performance is high", doneId: "raise",
       onclick: () => {
-        if (!spend()) return;
+        if (!useAction("raise")) return;
         if (Math.random() < j.performance / 130) { j.salary = Math.round(j.salary * 1.1); addLog(`You asked for a raise — and got it! Now ${fmtMoney(j.salary)} a year.`, "milestone", { highlight: true }); }
         else { j.performance = clamp(j.performance - 6, 0, 100); addLog("You asked for a raise. Your boss said \"not this year.\"", "action"); }
         renderSheet(); save();
@@ -999,8 +1014,9 @@ function jobRow(job, partTime) {
   const needs = !eduOk ? `Needs a ${eduNeed === "university" ? "university degree" : "high school diploma"}` : `${fmtMoney(salary)} a year`;
   return row({
     icon, color: eduOk ? "var(--money)" : "var(--faint)", title, sub: needs, disabled: !eduOk,
+    doneId: "apply",
     onclick: eduOk ? () => {
-      if (!spend()) return;
+      if (!useAction("apply")) return;
       const s = life.stats;
       const chance = clamp(0.5 + (s.smarts - smartsNeed) / 110 + (s.looks - 50) / 350 + (s.happiness - 50) / 400, 0.08, 0.95);
       if (Math.random() < chance) {
@@ -1019,28 +1035,46 @@ function jobRow(job, partTime) {
 
 const ROLE_COLOR = { Mother: "var(--health)", Father: "var(--smarts)", Sister: "var(--looks)", Brother: "var(--looks)", Friend: "var(--happy)", Partner: "#ff7eb3", Spouse: "#ff7eb3", Son: "var(--money)", Daughter: "var(--money)", Dog: "var(--lamp)", Cat: "var(--lamp)" };
 
+const FAMILY_ROLES = ["Mother", "Father", "Sister", "Brother", "Son", "Daughter"];
+const LOVE_ROLES = ["Spouse", "Partner"];
+const bondWord = (b) => (b >= 85 ? "Inseparable" : b >= 70 ? "Close" : b >= 50 ? "Good" : b >= 30 ? "Drifting apart" : "Barely speaking");
+
+function personRow(p) {
+  return row({
+    icon: p.pet ? PET_ICON[p.role] : firstName(p.name)[0], color: ROLE_COLOR[p.role] || "var(--dim)",
+    title: p.name, sub: `${p.role} · ${p.age} · ${bondWord(p.bond)}`,
+    bar: p.bond, barColor: ROLE_COLOR[p.role] || "var(--lamp)",
+    onclick: () => openSheet("person", p.id),
+  });
+}
+
+// The people you already have come first: the old order put "make a friend" at the top, which
+// made it look as though everyone was locked until you unlocked them.
 function sheetPeople(body) {
   $("sheet-title").textContent = "People";
-  actionsLeft(body);
   const a = life.age;
-  const hasPartner = life.people.some((p) => p.alive && (p.role === "Partner" || p.role === "Spouse"));
-
-  sectionLabel(body, "Meet people");
-  if (a >= 5) body.append(row({ icon: "👋", color: "var(--happy)", title: "Make a new friend", sub: "Someone to share the adventure", onclick: makeFriend }));
-  if (a >= 16 && !hasPartner) body.append(row({ icon: "💘", color: "#ff7eb3", title: "Find love", sub: "Better odds when you're happy and looking good", onclick: findLove }));
-  if (a >= 8) body.append(row({ icon: "🐾", color: "var(--lamp)", title: "Adopt a pet", sub: a >= 18 ? "$200 adoption fee" : "If your parents say yes…", onclick: adoptPet }));
-
   const alive = life.people.filter((p) => p.alive);
-  const gone = life.people.filter((p) => !p.alive);
-  sectionLabel(body, "Your people");
-  if (!alive.length) body.append(el("p", { class: "note" }, "It's just you for now."));
-  for (const p of alive) {
-    body.append(row({
-      icon: p.pet ? PET_ICON[p.role] : firstName(p.name)[0], color: ROLE_COLOR[p.role] || "var(--dim)",
-      title: p.name, sub: `${p.role} · ${p.age} year${p.age === 1 ? "" : "s"} old`,
-      bar: p.bond, barColor: ROLE_COLOR[p.role] || "var(--lamp)", onclick: () => openSheet("person", p.id),
-    }));
+  const groups = [
+    ["Your family", alive.filter((p) => FAMILY_ROLES.includes(p.role))],
+    ["Love", alive.filter((p) => LOVE_ROLES.includes(p.role))],
+    ["Friends", alive.filter((p) => p.role === "Friend")],
+    ["Pets", alive.filter((p) => p.pet)],
+  ];
+  body.append(el("p", { class: "note" }, "Tap anyone to spend time with them. Every relationship fades a little each year if you leave it alone."));
+  for (const [label, list] of groups) {
+    if (!list.length) continue;
+    sectionLabel(body, label);
+    for (const p of list) body.append(personRow(p));
   }
+
+  const hasPartner = alive.some((p) => LOVE_ROLES.includes(p.role));
+  sectionLabel(body, "Meet someone new");
+  if (a >= 5) body.append(row({ icon: "👋", color: "var(--happy)", title: "Make a new friend", sub: "Someone to share the adventure", doneId: "friend", onclick: makeFriend }));
+  if (a >= 16 && !hasPartner) body.append(row({ icon: "💘", color: "#ff7eb3", title: "Find love", sub: "Better odds when you're happy and looking good", doneId: "love", onclick: findLove }));
+  if (a >= 8) body.append(row({ icon: "🐾", color: "var(--lamp)", title: "Adopt a pet", sub: a >= 18 ? "$200 adoption fee" : "If your parents say yes…", doneId: "pet", onclick: adoptPet }));
+  if (a < 5) body.append(el("p", { class: "note" }, "You're a bit small to be making friends of your own just yet."));
+
+  const gone = life.people.filter((p) => !p.alive);
   if (gone.length) {
     sectionLabel(body, "In memory");
     for (const p of gone) body.append(row({ icon: "🕯️", color: "var(--faint)", title: p.name, sub: `${p.role} · died at ${p.age}` }));
@@ -1048,7 +1082,7 @@ function sheetPeople(body) {
 }
 
 function makeFriend() {
-  if (!spend()) return;
+  if (!useAction("friend")) return;
   const g = Math.random() < 0.5 ? "female" : "male";
   const friend = newPerson("Friend", randomName(life.country, g), clamp(life.age + randInt(-2, 2), 3, 110), randInt(45, 70), { gender: g });
   life.people.push(friend);
@@ -1058,7 +1092,7 @@ function makeFriend() {
 }
 
 function findLove() {
-  if (!spend()) return;
+  if (!useAction("love")) return;
   const s = life.stats;
   if (Math.random() < clamp(0.18 + (s.looks + s.happiness) / 260, 0.15, 0.85)) {
     const g = life.gender === "female" ? "male" : "female";
@@ -1077,7 +1111,7 @@ function findLove() {
 
 function adoptPet() {
   const cost = life.age >= 18 ? 200 : 0;
-  if (!spend(cost)) return;
+  if (!useAction("pet", cost)) return;
   if (life.age < 18 && Math.random() < 0.45) {
     addLog("You begged for a pet. Your parents said \"maybe next year.\"", "action");
   } else {
@@ -1096,23 +1130,23 @@ function sheetPerson(body, id) {
   const name = p.pet ? p.name : firstName(p.name);
   $("sheet-title").textContent = p.name;
   body.append(el("button", { class: "ghost-btn", type: "button", style: "margin-bottom:12px; padding:10px", onclick: () => openSheet("people") }, "← All people"));
-  body.append(row({ icon: p.pet ? PET_ICON[p.role] : name[0], color: ROLE_COLOR[p.role] || "var(--dim)", title: `${p.role} · ${p.age}`, sub: `Relationship ${Math.round(p.bond)}%`, bar: p.bond, barColor: ROLE_COLOR[p.role] || "var(--lamp)" }));
-  actionsLeft(body);
+  body.append(row({ icon: p.pet ? PET_ICON[p.role] : name[0], color: ROLE_COLOR[p.role] || "var(--dim)", title: `${p.role} · ${p.age}`, sub: `${bondWord(p.bond)} · ${Math.round(p.bond)}%`, bar: p.bond, barColor: ROLE_COLOR[p.role] || "var(--lamp)" }));
 
-  const act = (icon, title, sub, fn) => body.append(row({ icon, color: ROLE_COLOR[p.role] || "var(--lamp)", title, sub, onclick: fn }));
-  const done = () => { renderSheet(); save(); };
+  const slot = `person:${p.id}`;
+  const act = (icon, title, sub, fn) => body.append(row({ icon, color: ROLE_COLOR[p.role] || "var(--lamp)", title, sub, doneId: slot, onclick: fn }));
+  const refresh = () => { renderSheet(); save(); };
 
   if (p.pet) {
-    act("🎾", "Play together", "Happiness for you both", () => { if (!spend()) return; p.bond = clamp(p.bond + rand(8, 14), 0, 100); bump("happiness", 3, 6); addLog(`You played with ${p.name} until you were both exhausted.`, "action"); done(); });
+    act("🎾", "Play together", "Happiness for you both", () => { if (!useAction(slot)) return; p.bond = clamp(p.bond + rand(8, 14), 0, 100); bump("happiness", 3, 6); addLog(`You played with ${p.name} until you were both exhausted.`, "action"); refresh(); });
     return;
   }
 
-  act("☕", "Spend time together", "Grow closer", () => { if (!spend()) return; p.bond = clamp(p.bond + rand(8, 14), 0, 100); bump("happiness", 2, 5); addLog(`You spent a lovely day with ${name}.`, "action"); done(); });
-  act("💬", "Have a heart-to-heart", "Talk about something real", () => { if (!spend()) return; p.bond = clamp(p.bond + rand(4, 9), 0, 100); bump("happiness", 1, 3); addLog(`You and ${name} had a long heart-to-heart.`, "action"); done(); });
-  if (life.age >= 12) act("🎁", "Give a gift", "$50", () => { if (!spend(50)) return; p.bond = clamp(p.bond + rand(10, 16), 0, 100); addLog(`You gave ${name} a thoughtful gift.`, "action"); done(); });
+  act("☕", "Spend time together", "Grow closer", () => { if (!useAction(slot)) return; p.bond = clamp(p.bond + rand(8, 14), 0, 100); bump("happiness", 2, 5); addLog(`You spent a lovely day with ${name}.`, "action"); refresh(); });
+  act("💬", "Have a heart-to-heart", "Talk about something real", () => { if (!useAction(slot)) return; p.bond = clamp(p.bond + rand(4, 9), 0, 100); bump("happiness", 1, 3); addLog(`You and ${name} had a long heart-to-heart.`, "action"); refresh(); });
+  if (life.age >= 12) act("🎁", "Give a gift", "$50", () => { if (!useAction(slot, 50)) return; p.bond = clamp(p.bond + rand(10, 16), 0, 100); addLog(`You gave ${name} a thoughtful gift.`, "action"); refresh(); });
   if ((p.role === "Mother" || p.role === "Father") && life.age >= 6) {
     act("💵", "Ask for money", "Depends on how they feel about you", () => {
-      if (!spend()) return;
+      if (!useAction(slot)) return;
       if (Math.random() < p.bond / 125) {
         const amt = life.age < 13 ? randInt(5, 40) : life.age < 18 ? randInt(20, 200) : randInt(200, 3000);
         life.money += amt;
@@ -1121,13 +1155,13 @@ function sheetPerson(body, id) {
         p.bond = clamp(p.bond - 3, 0, 100);
         addLog(`You asked ${name} for money. The answer was a firm no.`, "action");
       }
-      done();
+      refresh();
     });
   }
   if (p.role === "Partner") {
-    act("🌹", "Go on a date", "Romance & happiness", () => { if (!spend(life.age >= 18 ? 60 : 0)) return; p.bond = clamp(p.bond + rand(8, 14), 0, 100); bump("happiness", 4, 7); addLog(`You and ${name} went on a wonderful date.`, "action"); done(); });
+    act("🌹", "Go on a date", "Romance & happiness", () => { if (!useAction(slot, life.age >= 18 ? 60 : 0)) return; p.bond = clamp(p.bond + rand(8, 14), 0, 100); bump("happiness", 4, 7); addLog(`You and ${name} went on a wonderful date.`, "action"); refresh(); });
     if (life.age >= 18 && p.age >= 18) act("💍", "Propose", "Needs a strong relationship", () => {
-      if (!spend()) return;
+      if (!useAction(slot)) return;
       if (Math.random() < clamp((p.bond - 30) / 55, 0.05, 0.95)) {
         p.role = "Spouse";
         addLog(`You proposed to ${name} — they said yes! You got married.`, "milestone", { highlight: true });
@@ -1137,14 +1171,14 @@ function sheetPerson(body, id) {
         addLog(`You proposed to ${name}. They said they weren't ready.`, "bad");
         bump("happiness", -8, -4);
       }
-      done();
+      refresh();
     });
     act("💔", "Break up", "End the relationship", () => { life.people = life.people.filter((x) => x.id !== p.id); addLog(`You and ${name} broke up.`, "bad", { highlight: true }); bump("happiness", -8, -3); openSheet("people"); save(); });
   }
   if (p.role === "Spouse") {
-    act("🍝", "Go on a date night", "Keep the spark alive", () => { if (!spend(80)) return; p.bond = clamp(p.bond + rand(7, 12), 0, 100); bump("happiness", 3, 6); addLog(`You and ${name} had a lovely date night.`, "action"); done(); });
+    act("🍝", "Go on a date night", "Keep the spark alive", () => { if (!useAction(slot, 80)) return; p.bond = clamp(p.bond + rand(7, 12), 0, 100); bump("happiness", 3, 6); addLog(`You and ${name} had a lovely date night.`, "action"); refresh(); });
     if (life.age >= 20 && life.age <= 48) act("👶", "Start a family", "Welcome a baby into the world", () => {
-      if (!spend()) return;
+      if (!useAction(slot)) return;
       if (Math.random() < 0.55) {
         const g = Math.random() < 0.5 ? "female" : "male";
         const last = life.name.split(" ").slice(1).join(" ");
@@ -1155,12 +1189,12 @@ function sheetPerson(body, id) {
       } else {
         addLog("You and your spouse are hoping for a baby. Not this year.", "action");
       }
-      done();
+      refresh();
     });
     act("📄", "Divorce", "End the marriage", () => { life.people = life.people.filter((x) => x.id !== p.id); const cost = Math.max(0, Math.round(life.money * 0.3)); life.money -= cost; addLog(`You and ${name} got divorced.${cost ? ` It cost you ${fmtMoney(cost)}.` : ""}`, "bad", { highlight: true }); bump("happiness", -12, -6); openSheet("people"); save(); });
   }
   if (!["Mother", "Father", "Son", "Daughter", "Spouse", "Partner"].includes(p.role)) {
-    act("😤", "Argue", "Say what you really think", () => { if (!spend()) return; p.bond = clamp(p.bond - rand(8, 16), 0, 100); bump("happiness", -4, -1); addLog(`You got into an argument with ${name}.`, "action"); done(); });
+    act("😤", "Argue", "Say what you really think", () => { if (!useAction(slot)) return; p.bond = clamp(p.bond - rand(8, 16), 0, 100); bump("happiness", -4, -1); addLog(`You got into an argument with ${name}.`, "action"); refresh(); });
   }
 }
 
@@ -1204,21 +1238,21 @@ function sheetAssets(body) {
 
 function sheetActivities(body) {
   $("sheet-title").textContent = "Activities";
-  actionsLeft(body);
   const list = ACTIVITIES.filter((x) => life.age >= x.min && (x.max === undefined || life.age <= x.max));
   for (const act of list) {
     const cost = act.cost && life.age >= (act.costFrom || 0) ? act.cost : 0;
     const color = STAT_META[Object.keys(act.fx)[0]]?.color || "var(--lamp)";
     body.append(row({
-      icon: act.icon, color, title: act.label, sub: act.sub, side: cost ? fmtMoney(cost) : null,
+      icon: act.icon, color, title: act.label, sub: act.sub, side: cost ? fmtMoney(cost) : null, doneId: act.id,
       onclick: () => {
-        if (!spend(cost)) return;
+        if (act.blocked && act.blocked()) { toast(act.blocked()); return; }
+        if (!useAction(act.id, cost)) return;
         const bits = [];
         for (const [stat, [lo, hi]] of Object.entries(act.fx)) {
           const d = bump(stat, lo, hi);
           if (d) bits.push(`${d > 0 ? "+" : ""}${d} ${STAT_META[stat].label.toLowerCase()}`);
         }
-        addLog(`${act.log}${bits.length ? ` (${bits.join(", ")})` : ""}`, "action", { highlight: act.highlight });
+        addLog(bits.length ? `${act.log} (${bits.join(", ")})` : `${act.log} ${act.plateau || "You're already at your peak — it barely moved the needle."}`, "action", { highlight: act.highlight && bits.length > 0 });
         renderSheet(); save();
       },
     }));
