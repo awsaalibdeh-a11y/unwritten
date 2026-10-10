@@ -19,6 +19,8 @@ from flask import Flask, Response, jsonify, render_template, request, stream_wit
 load_dotenv()
 
 app = Flask(__name__)
+import hubguard  # noqa: E402  (the owner's universal switches, kept in Cramly)
+hubguard.install(app, "unwritten")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 # gpt-5.4-mini measured ~1s to first word and ~2s to finish an event, within a tenth of a second
