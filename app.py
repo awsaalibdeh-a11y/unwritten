@@ -271,6 +271,13 @@ def index():
     return render_template("index.html", asset_v=ASSET_VERSION)
 
 
+@app.route("/manifest.webmanifest")
+def manifest():
+    resp = app.send_static_file("manifest.webmanifest")
+    resp.mimetype = "application/manifest+json"
+    return resp
+
+
 @app.route("/api/health")
 def health():
     return jsonify({"ok": True})
